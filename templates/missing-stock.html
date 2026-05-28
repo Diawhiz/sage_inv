@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block title %}Missing Stock{% endblock %}
+{% block content %}
+<h1 class="page-title">Missing Stock Reports</h1>
+
+<div class="card">
+    <div class="toolbar">
+        <button class="btn btn-danger" onclick="openReportModal()">+ Report Missing Stock</button>
+    </div>
+    <div class="table-wrapper" id="missingStockTable"></div>
+</div>
+
+<div id="reportModal" class="modal">
+    <div class="modal-content">
+        <h3>Report Missing Stock</h3>
+        <form id="reportForm">
+            <div class="form-group"><label>Product</label><select id="reportProduct" required></select></div>
+            <div class="form-group"><label>Quantity Missing</label><input type="number" id="reportQuantity" min="1" required></div>
+            <div class="form-group"><label>Action Taken</label><textarea id="reportAction" rows="3" placeholder="Describe action taken..."></textarea></div>
+            <div class="modal-actions">
+                <button type="submit" class="btn btn-danger">Submit Report</button>
+                <button type="button" class="btn" onclick="closeReportModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+async function loadProducts() {
+    try {
+        const products = await (await apiRequest('/api/products/')).json();
+        document.getElementById('reportProduct').innerHTML = products.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+    } catch(e) { alert(e.message); }
+}
+
+async function loadMissingStock() {
+    try {
+        const reports = await (await apiRequest('/api/missing-stock/')).json();
+        if (!reports.length) { document.getElementById('missingStockTable').innerHTML='<p style="color:#6B7280;padding:1rem 0">No missing stock reports.</p>'; return; }
+        document.getElementById('missingStockTable').innerHTML = `
+            <table>
+                <thead><tr><th>Product</th><th>Qty Missing</th><th>Date Reported</th><th>Action Taken</th></tr></thead>
+                <tbody>${reports.map(r=>`
+                    <tr>
+                        <td data-label="Product">${r.product_name}</td>
+                        <td data-label="Qty Missing" style="color:#EF4444;font-weight:700">${r.quantity_missing}</td>
+                        <td data-label="Date">${new Date(r.date_reported).toLocaleString()}</td>
+                        <td data-label="Action">${r.action_taken||'No action recorded'}</td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>`;
+    } catch(e) { document.getElementById('missingStockTable').innerHTML=`<div class="alert alert-error">${e.message}</div>`; }
+}
+
+function openReportModal() { document.getElementById('reportModal').style.display='flex'; }
+function closeReportModal() { document.getElementById('reportModal').style.display='none'; document.getElementById('reportForm').reset(); }
+
+document.getElementById('reportForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const data = { product: parseInt(document.getElementById('reportProduct').value), quantity_missing: parseInt(document.getElementById('reportQuantity').value), action_taken: document.getElementById('reportAction').value };
+    try {
+        const r = await apiRequest('/api/missing-stock/', {method:'POST', body:JSON.stringify(data)});
+        if (!r.ok) throw new Error(JSON.stringify(await r.json()));
+        closeReportModal(); loadMissingStock();
+    } catch(e) { alert(e.message); }
+});
+
+loadProducts(); loadMissingStock();
+</script>
+{% endblock %}

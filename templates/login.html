@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login — Inventory Manager</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --primary: #4F46E5;
+            --primary-dark: #4338CA;
+            --danger: #EF4444;
+            --text: #111827;
+            --text-muted: #6B7280;
+            --border: #E5E7EB;
+        }
+
+        body {
+            font-family: 'DM Sans', sans-serif;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            background: #0f0f1a;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Animated background blobs */
+        .bg {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            overflow: hidden;
+        }
+
+        .blob {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.35;
+            animation: drift 12s ease-in-out infinite alternate;
+        }
+
+        .blob-1 {
+            width: 500px; height: 500px;
+            background: #4F46E5;
+            top: -100px; left: -100px;
+            animation-delay: 0s;
+        }
+
+        .blob-2 {
+            width: 400px; height: 400px;
+            background: #7C3AED;
+            bottom: -100px; right: -80px;
+            animation-delay: -4s;
+        }
+
+        .blob-3 {
+            width: 300px; height: 300px;
+            background: #06B6D4;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            animation-delay: -8s;
+        }
+
+        @keyframes drift {
+            0%   { transform: translate(0, 0) scale(1); }
+            100% { transform: translate(40px, 30px) scale(1.1); }
+        }
+
+        /* Glass card */
+        .login-card {
+            position: relative;
+            z-index: 1;
+            width: 90%;
+            max-width: 400px;
+            background: rgba(255,255,255,0.05);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 1.5rem;
+            padding: 2.5rem 2rem;
+            box-shadow: 0 24px 80px rgba(0,0,0,0.4);
+        }
+
+        /* Brand */
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            margin-bottom: 2rem;
+        }
+
+        .brand-icon {
+            width: 38px; height: 38px;
+            background: var(--primary);
+            border-radius: 10px;
+            display: grid;
+            place-items: center;
+            font-size: 1.1rem;
+            flex-shrink: 0;
+            box-shadow: 0 4px 16px rgba(79,70,229,0.4);
+        }
+
+        .brand-name {
+            font-family: 'DM Mono', monospace;
+            font-size: 1rem;
+            font-weight: 500;
+            color: white;
+            letter-spacing: -0.01em;
+        }
+
+        .brand-name span {
+            color: rgba(255,255,255,0.45);
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: white;
+            margin-bottom: 0.35rem;
+            letter-spacing: -0.02em;
+        }
+
+        .subtitle {
+            font-size: 0.875rem;
+            color: rgba(255,255,255,0.45);
+            margin-bottom: 2rem;
+        }
+
+        /* Form */
+        .form-group {
+            margin-bottom: 1.1rem;
+        }
+
+        label {
+            display: block;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: rgba(255,255,255,0.6);
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            margin-bottom: 0.45rem;
+        }
+
+        .input-wrap {
+            position: relative;
+        }
+
+        .input-icon {
+            position: absolute;
+            left: 0.85rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: rgba(255,255,255,0.3);
+            font-size: 1rem;
+            pointer-events: none;
+        }
+
+        input {
+            width: 100%;
+            padding: 0.75rem 0.85rem 0.75rem 2.5rem;
+            background: rgba(255,255,255,0.07);
+            border: 1.5px solid rgba(255,255,255,0.1);
+            border-radius: 0.75rem;
+            font-size: 0.95rem;
+            font-family: 'DM Sans', sans-serif;
+            color: white;
+            transition: all 0.2s;
+            outline: none;
+        }
+
+        input::placeholder { color: rgba(255,255,255,0.25); }
+
+        input:focus {
+            border-color: rgba(79,70,229,0.7);
+            background: rgba(255,255,255,0.1);
+            box-shadow: 0 0 0 4px rgba(79,70,229,0.15);
+        }
+
+        input:-webkit-autofill {
+            -webkit-box-shadow: 0 0 0 50px #1a1a2e inset;
+            -webkit-text-fill-color: white;
+        }
+
+        /* Submit button */
+        .btn-login {
+            width: 100%;
+            padding: 0.8rem;
+            margin-top: 0.5rem;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 0.75rem;
+            font-size: 0.95rem;
+            font-weight: 600;
+            font-family: 'DM Sans', sans-serif;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            box-shadow: 0 4px 20px rgba(79,70,229,0.35);
+        }
+
+        .btn-login:hover {
+            background: var(--primary-dark);
+            transform: translateY(-1px);
+            box-shadow: 0 8px 28px rgba(79,70,229,0.45);
+        }
+
+        .btn-login:active { transform: translateY(0); }
+
+        .btn-login.loading {
+            pointer-events: none;
+            opacity: 0.8;
+        }
+
+        .spinner {
+            display: none;
+            width: 16px; height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+
+        .btn-login.loading .spinner { display: block; }
+        .btn-login.loading .btn-text { opacity: 0.7; }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Error */
+        .error-box {
+            display: none;
+            background: rgba(239,68,68,0.12);
+            border: 1px solid rgba(239,68,68,0.3);
+            color: #FCA5A5;
+            padding: 0.75rem 1rem;
+            border-radius: 0.625rem;
+            font-size: 0.85rem;
+            margin-top: 1rem;
+            line-height: 1.5;
+        }
+
+        /* Status */
+        .status {
+            text-align: center;
+            font-size: 0.75rem;
+            color: rgba(255,255,255,0.25);
+            margin-top: 1.25rem;
+            font-family: 'DM Mono', monospace;
+        }
+
+        .status.ok { color: #6EE7B7; }
+        .status.err { color: #FCA5A5; }
+
+        /* Divider */
+        .divider {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin: 1.5rem 0 0;
+        }
+
+        .divider span {
+            flex: 1;
+            height: 1px;
+            background: rgba(255,255,255,0.08);
+        }
+
+        .divider p {
+            font-size: 0.75rem;
+            color: rgba(255,255,255,0.25);
+        }
+
+        /* Responsive */
+        @media (max-width: 400px) {
+            .login-card { padding: 2rem 1.25rem; }
+            h1 { font-size: 1.3rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
+    </div>
+
+    <div class="login-card">
+        <div class="brand">
+            <div class="brand-icon">📦</div>
+            <div class="brand-name">inv<span>_</span>manager</div>
+        </div>
+
+        <h1>Welcome back</h1>
+        <p class="subtitle">Sign in to manage your inventory</p>
+
+        <form id="loginForm" autocomplete="on">
+            <div class="form-group">
+                <label>Username</label>
+                <div class="input-wrap">
+                    <span class="input-icon">👤</span>
+                    <input type="text" id="username" name="username" placeholder="Enter your username" required autocomplete="username">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <div class="input-wrap">
+                    <span class="input-icon">🔑</span>
+                    <input type="password" id="password" name="password" placeholder="Enter your password" required autocomplete="current-password">
+                </div>
+            </div>
+
+            <button type="submit" class="btn-login" id="loginBtn">
+                <div class="spinner"></div>
+                <span class="btn-text">Sign in</span>
+            </button>
+
+            <div class="error-box" id="errorBox"></div>
+        </form>
+
+        <div class="divider"><span></span><p>secured with token auth</p><span></span></div>
+        <p class="status" id="statusMsg">● connecting...</p>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://127.0.0.1:8080';
+        const statusEl = document.getElementById('statusMsg');
+        const errorBox = document.getElementById('errorBox');
+        const loginBtn = document.getElementById('loginBtn');
+
+        // Check server connection
+        fetch(`${API_BASE_URL}/api/ping/`)
+            .then(r => {
+                statusEl.textContent = '● server online';
+                statusEl.className = 'status ok';
+            })
+            .catch(() => {
+                statusEl.textContent = '● server offline — run: python manage.py runserver 8080';
+                statusEl.className = 'status err';
+            });
+
+        document.getElementById('loginForm').addEventListener('submit', async e => {
+            e.preventDefault();
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+
+            errorBox.style.display = 'none';
+            loginBtn.classList.add('loading');
+            loginBtn.querySelector('.btn-text').textContent = 'Signing in...';
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/auth/login/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const text = await response.text();
+                statusEl.textContent = `● HTTP ${response.status}`;
+
+                let data;
+                try { data = JSON.parse(text); }
+                catch {
+                    throw new Error(`Server returned non-JSON (HTTP ${response.status}). Check Django terminal.`);
+                }
+
+                if (response.ok) {
+                    localStorage.setItem('auth_token', data.token);
+                    localStorage.setItem('user', JSON.stringify(data.user));
+                    loginBtn.querySelector('.btn-text').textContent = '✓ Redirecting...';
+                    statusEl.textContent = '● authenticated';
+                    statusEl.className = 'status ok';
+                    setTimeout(() => window.location.href = '/dashboard/', 300);
+                } else {
+                    throw new Error(data.error || data.detail || 'Invalid credentials');
+                }
+            } catch (err) {
+                errorBox.textContent = err.message;
+                errorBox.style.display = 'block';
+                statusEl.textContent = '● login failed';
+                statusEl.className = 'status err';
+            } finally {
+                loginBtn.classList.remove('loading');
+                loginBtn.querySelector('.btn-text').textContent = 'Sign in';
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h1 class="page-title">Dashboard</h1>
+
+<div class="stats-row" id="statsRow">
+    <div class="stat-card"><div class="stat-value" id="statVendors">—</div><div class="stat-label">Vendors</div></div>
+    <div class="stat-card"><div class="stat-value" id="statProducts">—</div><div class="stat-label">Products</div></div>
+    <div class="stat-card"><div class="stat-value" id="statStock">—</div><div class="stat-label">Stock Items</div></div>
+    <div class="stat-card"><div class="stat-value" id="statLow" style="color:#EF4444">—</div><div class="stat-label">Low Stock</div></div>
+</div>
+
+<div class="card">
+    <h2>Vendors</h2>
+    <div class="table-wrapper" id="vendorsList"></div>
+</div>
+
+<div class="card">
+    <h2>Products</h2>
+    <div class="table-wrapper" id="productsList"></div>
+</div>
+
+<div class="card">
+    <h2>⚠ Low Stock Alerts</h2>
+    <div class="table-wrapper" id="lowStockList"></div>
+</div>
+
+<script>
+async function loadDashboard() {
+    try {
+        const [vr, pr, sr] = await Promise.all([
+            apiRequest('/api/vendors/'),
+            apiRequest('/api/products/'),
+            apiRequest('/api/stock/')
+        ]);
+        const vendors = await vr.json();
+        const products = await pr.json();
+        const stock = await sr.json();
+        const lowStock = stock.filter(s => s.quantity < 10);
+
+        document.getElementById('statVendors').textContent = vendors.length;
+        document.getElementById('statProducts').textContent = products.length;
+        document.getElementById('statStock').textContent = stock.length;
+        document.getElementById('statLow').textContent = lowStock.length;
+
+        document.getElementById('vendorsList').innerHTML = vendors.length ? `
+            <table><thead><tr><th>Name</th><th>Contact</th><th>Address</th></tr></thead>
+            <tbody>${vendors.map(v=>`<tr>
+                <td data-label="Name">${v.name}</td>
+                <td data-label="Contact">${v.contact}</td>
+                <td data-label="Address">${v.address.substring(0,50)}</td>
+            </tr>`).join('')}</tbody></table>` : '<p style="color:#6B7280">No vendors found</p>';
+
+        document.getElementById('productsList').innerHTML = products.length ? `
+            <table><thead><tr><th>Name</th><th>Description</th><th>Vendor</th></tr></thead>
+            <tbody>${products.map(p=>`<tr>
+                <td data-label="Name">${p.name}</td>
+                <td data-label="Description">${p.description.substring(0,50)}</td>
+                <td data-label="Vendor">${p.vendor_name}</td>
+            </tr>`).join('')}</tbody></table>` : '<p style="color:#6B7280">No products found</p>';
+
+        document.getElementById('lowStockList').innerHTML = lowStock.length ? `
+            <table><thead><tr><th>Product</th><th>Qty</th><th>Last Updated</th></tr></thead>
+            <tbody>${lowStock.map(s=>`<tr>
+                <td data-label="Product">${s.product_name}</td>
+                <td data-label="Qty" style="color:${s.quantity===0?'#EF4444':'#F59E0B'};font-weight:700">${s.quantity}${s.quantity===0?' ⚠':''}</td>
+                <td data-label="Updated">${new Date(s.last_updated).toLocaleDateString()}</td>
+            </tr>`).join('')}</tbody></table>`
+            : '<p style="color:#10B981;font-weight:500">✓ All stock levels are healthy</p>';
+
+    } catch(e) { console.error(e); }
+}
+loadDashboard();
+</script>
+{% endblock %}

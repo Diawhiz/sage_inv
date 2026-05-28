@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+{% block title %}Stock Management{% endblock %}
+{% block content %}
+<h1 class="page-title">Stock Management</h1>
+
+<div class="card">
+    <div class="toolbar">
+        <button class="btn btn-primary" onclick="openAddModal()">+ Add Stock</button>
+    </div>
+    <div class="table-wrapper" id="stockTable"></div>
+</div>
+
+<!-- Update Stock Modal -->
+<div id="stockModal" class="modal">
+    <div class="modal-content">
+        <h3>Update Stock</h3>
+        <form id="stockForm">
+            <div class="form-group"><label>Product</label><input type="text" id="stockProductName" readonly></div>
+            <div class="form-group"><label>New Quantity</label><input type="number" id="stockQuantity" min="0" required></div>
+            <input type="hidden" id="stockId">
+            <div class="modal-actions">
+                <button type="submit" class="btn btn-primary">Update</button>
+                <button type="button" class="btn" onclick="closeModal('stockModal')">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Add Stock Modal -->
+<div id="addStockModal" class="modal">
+    <div class="modal-content">
+        <h3>Add Stock Entry</h3>
+        <form id="addStockForm">
+            <div class="form-group"><label>Product</label><select id="addStockProduct" required><option value="">-- Select Product --</option></select></div>
+            <div class="form-group"><label>Initial Quantity</label><input type="number" id="addStockQuantity" min="0" value="0" required></div>
+            <div class="modal-actions">
+                <button type="submit" class="btn btn-primary">Add Stock</button>
+                <button type="button" class="btn" onclick="closeModal('addStockModal')">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+async function loadStock() {
+    try {
+        const stock = await (await apiRequest('/api/stock/')).json();
+        if (!stock.length) {
+            document.getElementById('stockTable').innerHTML = '<p style="color:#6B7280;padding:1rem 0">No stock records found. Add stock using the button above.</p>';
+            return;
+        }
+        document.getElementById('stockTable').innerHTML = `
+            <table>
+                <thead>
+                    <tr><th>Product</th><th>Quantity</th><th>Last Updated</th><th>Updated By</th><th>Actions</th></tr>
+                </thead>
+                <tbody>
+                    ${stock.map(s => `
+                        <tr>
+                            <td data-label="Product">${s.product_name}</td>
+                            <td data-label="Quantity">
+                                <span style="font-weight:700;color:${s.quantity===0?'#EF4444':s.quantity<10?'#F59E0B':'#10B981'}">
+                                    ${s.quantity}${s.quantity===0?' ⚠ OUT':s.quantity<10?' ⚠ LOW':''}
+                                </span>
+                            </td>
+                            <td data-label="Updated">${new Date(s.last_updated).toLocaleString()}</td>
+                            <td data-label="By">${s.updated_by_username||'—'}</td>
+                            <td data-label="Actions">
+                                <button class="btn btn-primary" onclick="openUpdateModal(${s.id},'${s.product_name}',${s.quantity})">Update</button>
+                            </td>
+                        </tr>`).join('')}
+                </tbody>
+            </table>`;
+    } catch(e) {
+        document.getElementById('stockTable').innerHTML = `<div class="alert alert-error">${e.message}</div>`;
+    }
+}
+
+async function openAddModal() {
+    try {
+        const products = await (await apiRequest('/api/products/')).json();
+        const select = document.getElementById('addStockProduct');
+        select.innerHTML = '<option value="">-- Select Product --</option>' +
+            products.map(p => `<option value="${p.id}">${p.name} (${p.vendor_name})</option>`).join('');
+        document.getElementById('addStockForm').reset();
+        document.getElementById('addStockModal').style.display = 'flex';
+    } catch(e) { alert(e.message); }
+}
+
+function openUpdateModal(id, productName, qty) {
+    document.getElementById('stockId').value = id;
+    document.getElementById('stockProductName').value = productName;
+    document.getElementById('stockQuantity').value = qty;
+    document.getElementById('stockModal').style.display = 'flex';
+}
+
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+document.getElementById('stockForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const id = document.getElementById('stockId').value;
+    const quantity = parseInt(document.getElementById('stockQuantity').value);
+    try {
+        const r = await apiRequest(`/api/stock/${id}/`, {method:'PUT', body:JSON.stringify({quantity})});
+        if (!r.ok) throw new Error(JSON.stringify(await r.json()));
+        closeModal('stockModal'); loadStock();
+    } catch(e) { alert(e.message); }
+});
+
+document.getElementById('addStockForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const product = parseInt(document.getElementById('addStockProduct').value);
+    const quantity = parseInt(document.getElementById('addStockQuantity').value);
+    if (!product) { alert('Please select a product.'); return; }
+    try {
+        const r = await apiRequest('/api/stock/', {method:'POST', body:JSON.stringify({product, quantity})});
+        if (!r.ok) throw new Error(JSON.stringify(await r.json()));
+        closeModal('addStockModal'); loadStock();
+    } catch(e) { alert(e.message); }
+});
+
+loadStock();
+</script>
+{% endblock %}
