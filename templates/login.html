@@ -332,7 +332,7 @@
     </div>
 
     <script>
-        const API_BASE_URL = 'http://127.0.0.1:8080';
+        const API_BASE_URL = 'https://sage-inv.vercel.app';
         const statusEl = document.getElementById('statusMsg');
         const errorBox = document.getElementById('errorBox');
         const loginBtn = document.getElementById('loginBtn');
@@ -344,7 +344,7 @@
                 statusEl.className = 'status ok';
             })
             .catch(() => {
-                statusEl.textContent = '● server offline — run: python manage.py runserver 8080';
+                statusEl.textContent = '● server offline';
                 statusEl.className = 'status err';
             });
 
