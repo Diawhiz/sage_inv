@@ -1,5 +1,37 @@
 {% extends 'base.html' %}
 {% block title %}Missing Stock{% endblock %}
+
+{% block extra_css %}
+<style>
+.log-timeline { margin-top: 0.75rem; }
+.log-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #F3F4F6;
+    font-size: 0.8rem;
+}
+.log-item:last-child { border-bottom: none; }
+.log-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--primary);
+    flex-shrink: 0;
+    margin-top: 3px;
+}
+.log-qty { font-weight: 700; font-size: 1rem; color: var(--text); min-width: 28px; }
+.log-meta { color: var(--text-muted); font-size: 0.75rem; }
+.log-note { color: var(--text); font-size: 0.8rem; }
+.qty-badge {
+    display: inline-block;
+    background: #FEE2E2; color: #991B1B;
+    padding: 0.2rem 0.6rem; border-radius: 999px;
+    font-weight: 700; font-size: 0.8rem;
+}
+</style>
+{% endblock %}
+
 {% block content %}
 <h1 class="page-title">Missing Stock Reports</h1>
 
@@ -10,6 +42,7 @@
     <div class="table-wrapper" id="missingStockTable"></div>
 </div>
 
+<!-- Report Modal -->
 <div id="reportModal" class="modal">
     <div class="modal-content">
         <h3>Report Missing Stock</h3>
@@ -25,6 +58,33 @@
     </div>
 </div>
 
+<!-- Update / Recovery Log Modal -->
+<div id="updateModal" class="modal">
+    <div class="modal-content">
+        <h3>Update Missing Quantity</h3>
+        <input type="hidden" id="updateId">
+
+        <div class="form-group">
+            <label>Current Quantity Missing</label>
+            <input type="number" id="updateQuantity" min="0" required>
+        </div>
+        <div class="form-group">
+            <label>Note (optional)</label>
+            <input type="text" id="updateNote" placeholder="e.g. Recovered 1 unit from storage">
+        </div>
+
+        <div id="logSection" style="margin-top:1rem">
+            <p style="font-size:0.8rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem">Recovery History</p>
+            <div id="logTimeline" class="log-timeline"></div>
+        </div>
+
+        <div class="modal-actions">
+            <button type="button" class="btn btn-primary" onclick="submitUpdate()">Save Update</button>
+            <button type="button" class="btn" onclick="closeUpdateModal()">Cancel</button>
+        </div>
+    </div>
+</div>
+
 <script>
 async function loadProducts() {
     try {
@@ -36,35 +96,90 @@ async function loadProducts() {
 async function loadMissingStock() {
     try {
         const reports = await (await apiRequest('/api/missing-stock/')).json();
-        if (!reports.length) { document.getElementById('missingStockTable').innerHTML='<p style="color:#6B7280;padding:1rem 0">No missing stock reports.</p>'; return; }
+        if (!reports.length) {
+            document.getElementById('missingStockTable').innerHTML='<p style="color:#6B7280;padding:1rem 0">No missing stock reports.</p>';
+            return;
+        }
         document.getElementById('missingStockTable').innerHTML = `
             <table>
-                <thead><tr><th>Product</th><th>Qty Missing</th><th>Date Reported</th><th>Action Taken</th></tr></thead>
+                <thead><tr><th>Product</th><th>Qty Missing</th><th>Date Reported</th><th>Action Taken</th><th>Actions</th></tr></thead>
                 <tbody>${reports.map(r=>`
                     <tr>
                         <td data-label="Product">${r.product_name}</td>
-                        <td data-label="Qty Missing" style="color:#EF4444;font-weight:700">${r.quantity_missing}</td>
-                        <td data-label="Date">${new Date(r.date_reported).toLocaleString()}</td>
-                        <td data-label="Action">${r.action_taken||'No action recorded'}</td>
+                        <td data-label="Qty Missing"><span class="qty-badge">${r.quantity_missing}</span></td>
+                        <td data-label="Date">${new Date(r.date_reported).toLocaleDateString('en-NG',{day:'numeric',month:'short',year:'numeric'})}</td>
+                        <td data-label="Action">${r.action_taken||'—'}</td>
+                        <td data-label="Actions">
+                            <button class="btn btn-primary" onclick='openUpdateModal(${JSON.stringify(r)})'>Update</button>
+                        </td>
                     </tr>`).join('')}
                 </tbody>
             </table>`;
-    } catch(e) { document.getElementById('missingStockTable').innerHTML=`<div class="alert alert-error">${e.message}</div>`; }
+    } catch(e) {
+        document.getElementById('missingStockTable').innerHTML=`<div class="alert alert-error">${e.message}</div>`;
+    }
 }
 
 function openReportModal() { document.getElementById('reportModal').style.display='flex'; }
 function closeReportModal() { document.getElementById('reportModal').style.display='none'; document.getElementById('reportForm').reset(); }
 
+function openUpdateModal(report) {
+    document.getElementById('updateId').value = report.id;
+    document.getElementById('updateQuantity').value = report.quantity_missing;
+    document.getElementById('updateNote').value = '';
+
+    const logs = report.logs || [];
+    if (logs.length) {
+        document.getElementById('logTimeline').innerHTML = logs.map(l => `
+            <div class="log-item">
+                <div class="log-dot"></div>
+                <div>
+                    <span class="log-qty">${l.quantity}</span>
+                    <span class="log-meta"> &nbsp;·&nbsp; ${new Date(l.updated_at).toLocaleString('en-NG',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</span>
+                    ${l.updated_by_username ? `<span class="log-meta"> by ${l.updated_by_username}</span>` : ''}
+                    ${l.note ? `<div class="log-note">${l.note}</div>` : ''}
+                </div>
+            </div>`).join('');
+    } else {
+        document.getElementById('logTimeline').innerHTML = '<p style="color:#6B7280;font-size:.8rem">No history yet.</p>';
+    }
+
+    document.getElementById('updateModal').style.display='flex';
+}
+
+function closeUpdateModal() { document.getElementById('updateModal').style.display='none'; }
+
+async function submitUpdate() {
+    const id = document.getElementById('updateId').value;
+    const quantity_missing = parseInt(document.getElementById('updateQuantity').value);
+    const note = document.getElementById('updateNote').value;
+    try {
+        const r = await apiRequest(`/api/missing-stock/${id}/`, {
+            method: 'PATCH',
+            body: JSON.stringify({ quantity_missing, note })
+        });
+        if (!r.ok) throw new Error(JSON.stringify(await r.json()));
+        closeUpdateModal();
+        loadMissingStock();
+    } catch(e) { alert(e.message); }
+}
+
 document.getElementById('reportForm').addEventListener('submit', async e => {
     e.preventDefault();
-    const data = { product: parseInt(document.getElementById('reportProduct').value), quantity_missing: parseInt(document.getElementById('reportQuantity').value), action_taken: document.getElementById('reportAction').value };
+    const data = {
+        product: parseInt(document.getElementById('reportProduct').value),
+        quantity_missing: parseInt(document.getElementById('reportQuantity').value),
+        action_taken: document.getElementById('reportAction').value
+    };
     try {
         const r = await apiRequest('/api/missing-stock/', {method:'POST', body:JSON.stringify(data)});
         if (!r.ok) throw new Error(JSON.stringify(await r.json()));
-        closeReportModal(); loadMissingStock();
+        closeReportModal();
+        loadMissingStock();
     } catch(e) { alert(e.message); }
 });
 
-loadProducts(); loadMissingStock();
+loadProducts();
+loadMissingStock();
 </script>
 {% endblock %}

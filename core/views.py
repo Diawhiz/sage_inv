@@ -4,14 +4,14 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate, get_user_model
-from django.shortcuts import get_object_or_404
-from .models import Vendor, Product, Stock, MissingStock
+from .models import Vendor, Product, Stock, MissingStock, MissingStockLog, DeliveryEntry, Expense
 from .serializers import (
     UserSerializer, VendorSerializer, ProductSerializer,
-    StockSerializer, MissingStockSerializer
+    StockSerializer, MissingStockSerializer, DeliveryEntrySerializer, ExpenseSerializer,
 )
 
-User = get_user_model()  
+User = get_user_model()
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -25,10 +25,7 @@ def login_view(request):
     user = authenticate(username=username, password=password)
     if user:
         token, _ = Token.objects.get_or_create(user=user)
-        return Response({
-            'token': token.key,
-            'user': UserSerializer(user).data
-        })
+        return Response({'token': token.key, 'user': UserSerializer(user).data})
     return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
 
 
@@ -36,8 +33,7 @@ def login_view(request):
 @permission_classes([IsAuthenticated])
 def register_view(request):
     if not request.user.is_superuser:
-        return Response({'error': 'Only superusers can register new users'},
-                        status=status.HTTP_403_FORBIDDEN)
+        return Response({'error': 'Only superusers can register new users'}, status=status.HTTP_403_FORBIDDEN)
 
     username = request.data.get('username')
     password = request.data.get('password')
@@ -50,7 +46,7 @@ def register_view(request):
         return Response({'error': 'Username already exists'}, status=status.HTTP_400_BAD_REQUEST)
 
     user = User.objects.create_user(username=username, password=password, email=email)
-    return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)  # ← added .data
+    return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
 
 
 class VendorViewSet(viewsets.ModelViewSet):
@@ -63,9 +59,15 @@ class VendorViewSet(viewsets.ModelViewSet):
 
 
 class ProductViewSet(viewsets.ModelViewSet):
-    queryset = Product.objects.all()
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = Product.objects.all()
+        vendor_id = self.request.query_params.get('vendor')
+        if vendor_id:
+            qs = qs.filter(vendor_id=vendor_id)
+        return qs
 
 
 class StockViewSet(viewsets.ModelViewSet):
@@ -85,17 +87,81 @@ class StockViewSet(viewsets.ModelViewSet):
 
 
 class MissingStockViewSet(viewsets.ModelViewSet):
-    queryset = MissingStock.objects.all()
     serializer_class = MissingStockSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        # Only superusers can see missing stock
         if not self.request.user.is_superuser:
             return MissingStock.objects.none()
-        return super().get_queryset()
+        return MissingStock.objects.prefetch_related('logs').all()
 
     def create(self, request, *args, **kwargs):
         if not request.user.is_superuser:
             return Response({'error': 'Superusers only'}, status=status.HTTP_403_FORBIDDEN)
-        return super().create(request, *args, **kwargs)
+        response = super().create(request, *args, **kwargs)
+        instance = MissingStock.objects.get(pk=response.data['id'])
+        MissingStockLog.objects.create(
+            missing_stock=instance,
+            quantity=instance.quantity_missing,
+            note='Initial report',
+            updated_by=request.user,
+        )
+        return response
+
+    def perform_update(self, serializer):
+        old_qty = serializer.instance.quantity_missing
+        updated = serializer.save()
+        if updated.quantity_missing != old_qty:
+            MissingStockLog.objects.create(
+                missing_stock=updated,
+                quantity=updated.quantity_missing,
+                note=self.request.data.get('note', ''),
+                updated_by=self.request.user,
+            )
+
+
+class DeliveryEntryViewSet(viewsets.ModelViewSet):
+    serializer_class = DeliveryEntrySerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = DeliveryEntry.objects.select_related('vendor', 'product', 'created_by')
+        date = self.request.query_params.get('date')
+        if date:
+            qs = qs.filter(date=date)
+        return qs
+
+    def perform_create(self, serializer):
+        entry = serializer.save(created_by=self.request.user)
+        try:
+            stock = Stock.objects.get(product=entry.product)
+            stock.quantity = max(0, stock.quantity - entry.quantity)
+            stock.updated_by = self.request.user
+            stock.save()
+        except Stock.DoesNotExist:
+            pass
+
+    def perform_destroy(self, instance):
+        # Restore stock when a delivery entry is deleted
+        try:
+            stock = Stock.objects.get(product=instance.product)
+            stock.quantity += instance.quantity
+            stock.save()
+        except Stock.DoesNotExist:
+            pass
+        instance.delete()
+
+
+class ExpenseViewSet(viewsets.ModelViewSet):
+    serializer_class = ExpenseSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = Expense.objects.all()
+        date = self.request.query_params.get('date')
+        if date:
+            qs = qs.filter(date=date)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)

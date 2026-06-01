@@ -1,0 +1,474 @@
+{% extends 'base.html' %}
+{% block title %}Daily Report{% endblock %}
+
+{% block extra_css %}
+<style>
+.report-grid {
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    gap: 1.25rem;
+    align-items: start;
+}
+@media (max-width: 900px) { .report-grid { grid-template-columns: 1fr; } }
+
+.form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+@media (max-width: 480px) { .form-row-2 { grid-template-columns: 1fr; } }
+
+/* Vendor group */
+.vendor-group {
+    border: 1.5px solid var(--border);
+    border-radius: 0.75rem;
+    overflow: hidden;
+    margin-bottom: 1rem;
+}
+.vendor-group:last-child { margin-bottom: 0; }
+.vendor-group-header {
+    background: #EEF2FF;
+    padding: 0.55rem 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--primary);
+}
+.vendor-group table { min-width: 100%; margin: 0; }
+.vendor-group td, .vendor-group th { font-size: 0.82rem; padding: 0.55rem 0.85rem; }
+.vendor-fee-row {
+    background: #F9FAFB;
+    padding: 0.4rem 1rem;
+    text-align: right;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border);
+}
+
+/* Summary */
+.summary-line {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+}
+.summary-line:last-child {
+    border-bottom: none;
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--primary);
+    padding-top: 0.75rem;
+}
+
+.qty-pill {
+    background: #EEF2FF;
+    color: var(--primary);
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.btn-copy {
+    background: #10B981;
+    color: white;
+}
+.btn-copy:hover { background: #059669; transform: translateY(-1px); }
+.btn-copy.copied { background: #6B7280; }
+
+.date-input {
+    padding: 0.45rem 0.75rem;
+    border: 1.5px solid #E5E7EB;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    font-family: 'DM Sans', sans-serif;
+    background: white;
+    color: #111827;
+}
+.date-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,.1); }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Toolbar -->
+<div class="toolbar" style="margin-bottom:1.25rem">
+    <h1 class="page-title" style="margin:0;flex:1">Daily Report</h1>
+    <input type="date" id="reportDate" class="date-input">
+    <button class="btn btn-copy" id="copyBtn" onclick="copyReport()">Copy Report</button>
+</div>
+
+<div class="report-grid">
+
+    <!-- LEFT: Forms -->
+    <div>
+        <!-- Delivery Form -->
+        <div class="card">
+            <h2>Add Delivery</h2>
+            <form id="deliveryForm" autocomplete="off">
+                <div class="form-group">
+                    <label>Vendor</label>
+                    <select id="delVendor" required onchange="onVendorChange()">
+                        <option value="">Select vendor…</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Product</label>
+                    <select id="delProduct" required onchange="onProductChange()">
+                        <option value="">Select vendor first</option>
+                    </select>
+                </div>
+                <div class="form-row-2">
+                    <div class="form-group" style="margin:0">
+                        <label>Qty</label>
+                        <input type="number" id="delQty" min="1" value="1" required>
+                    </div>
+                    <div class="form-group" style="margin:0">
+                        <label>Price (₦)</label>
+                        <input type="number" id="delPrice" step="0.01" min="0" required placeholder="Auto-filled">
+                    </div>
+                </div>
+                <div class="form-group" style="margin-top:.75rem">
+                    <label>Delivery Fee (₦)</label>
+                    <input type="number" id="delFee" step="0.01" min="0" value="0">
+                </div>
+                <div id="delAlert"></div>
+                <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.25rem;justify-content:center">+ Add Delivery</button>
+            </form>
+        </div>
+
+        <!-- Expense Form -->
+        <div class="card">
+            <h2>Add Expense</h2>
+            <form id="expenseForm" autocomplete="off">
+                <div class="form-group">
+                    <label>Description</label>
+                    <input type="text" id="expDesc" required placeholder="e.g. Transport, Packaging…">
+                </div>
+                <div class="form-group">
+                    <label>Amount (₦)</label>
+                    <input type="number" id="expAmount" step="0.01" min="0" required>
+                </div>
+                <div id="expAlert"></div>
+                <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center">+ Add Expense</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- RIGHT: Lists + Summary -->
+    <div>
+        <!-- Deliveries -->
+        <div class="card">
+            <h2>Deliveries</h2>
+            <div id="deliveriesList"><p style="color:#6B7280">No deliveries for this date.</p></div>
+        </div>
+
+        <!-- Expenses -->
+        <div class="card">
+            <h2>Expenses</h2>
+            <div id="expensesList"><p style="color:#6B7280">No expenses for this date.</p></div>
+        </div>
+
+        <!-- Summary -->
+        <div class="card">
+            <h2>Summary</h2>
+            <div class="summary-line"><span>Total Sales</span><span id="sumSales">₦0.00</span></div>
+            <div class="summary-line"><span>Total Delivery Fees</span><span id="sumFees">₦0.00</span></div>
+            <div class="summary-line"><span>Total Expenses</span><span id="sumExp">₦0.00</span></div>
+            <div class="summary-line"><span>Balance (Sales − Expenses)</span><span id="sumBalance">₦0.00</span></div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ── State ────────────────────────────────────────────────
+let allDeliveries = [];
+let allExpenses   = [];
+let productCache  = {};   // { vendorId: [product, ...] }
+
+// ── Init ─────────────────────────────────────────────────
+const today = new Date().toISOString().split('T')[0];
+document.getElementById('reportDate').value = today;
+document.getElementById('reportDate').addEventListener('change', loadReportData);
+
+(async function init() {
+    try {
+        const vendors = await (await apiRequest('/api/vendors/')).json();
+        const sel = document.getElementById('delVendor');
+        sel.innerHTML = '<option value="">Select vendor…</option>' +
+            vendors.map(v => `<option value="${v.id}">${v.name}</option>`).join('');
+    } catch(e) { console.error(e); }
+    loadReportData();
+})();
+
+// ── Form helpers ─────────────────────────────────────────
+async function onVendorChange() {
+    const vid = document.getElementById('delVendor').value;
+    const sel = document.getElementById('delProduct');
+    document.getElementById('delPrice').value = '';
+    if (!vid) { sel.innerHTML = '<option value="">Select vendor first</option>'; return; }
+
+    sel.innerHTML = '<option value="">Loading…</option>';
+    if (!productCache[vid]) {
+        const r = await apiRequest(`/api/products/?vendor=${vid}`);
+        productCache[vid] = await r.json();
+    }
+    const products = productCache[vid];
+    sel.innerHTML = products.length
+        ? '<option value="">Select product…</option>' +
+          products.map(p => `<option value="${p.id}" data-price="${p.price}">${p.name}</option>`).join('')
+        : '<option value="">No products for this vendor</option>';
+}
+
+function onProductChange() {
+    const opt = document.getElementById('delProduct').selectedOptions[0];
+    if (opt && opt.dataset.price !== undefined && opt.value) {
+        document.getElementById('delPrice').value = parseFloat(opt.dataset.price).toFixed(2);
+    }
+}
+
+// ── Load data ────────────────────────────────────────────
+async function loadReportData() {
+    const date = document.getElementById('reportDate').value;
+    try {
+        const [dr, er] = await Promise.all([
+            apiRequest(`/api/deliveries/?date=${date}`),
+            apiRequest(`/api/expenses/?date=${date}`),
+        ]);
+        allDeliveries = await dr.json();
+        allExpenses   = await er.json();
+        renderDeliveries();
+        renderExpenses();
+        renderSummary();
+    } catch(e) { console.error(e); }
+}
+
+// ── Render ────────────────────────────────────────────────
+function fmt(n) { return '₦' + parseFloat(n).toLocaleString('en-NG', {minimumFractionDigits:2}); }
+
+function renderDeliveries() {
+    const el = document.getElementById('deliveriesList');
+    if (!allDeliveries.length) {
+        el.innerHTML = '<p style="color:#6B7280">No deliveries for this date.</p>';
+        return;
+    }
+    // Group by vendor
+    const groups = {};
+    allDeliveries.forEach(d => {
+        (groups[d.vendor_name] = groups[d.vendor_name] || []).push(d);
+    });
+
+    el.innerHTML = Object.entries(groups).map(([vname, entries]) => {
+        const subtotal = entries.reduce((s,d) => s + parseFloat(d.price) * d.quantity, 0);
+        const fees     = entries.reduce((s,d) => s + parseFloat(d.delivery_fee), 0);
+        return `
+        <div class="vendor-group">
+            <div class="vendor-group-header">
+                <span>${vname}</span>
+                <span>Subtotal: ${fmt(subtotal)}</span>
+            </div>
+            <div class="table-wrapper">
+                <table>
+                    <thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Fee</th><th></th></tr></thead>
+                    <tbody>
+                    ${entries.map(d => `<tr>
+                        <td data-label="Product">${d.product_name}</td>
+                        <td data-label="Qty"><span class="qty-pill">${d.quantity}</span></td>
+                        <td data-label="Price">${fmt(d.price)}</td>
+                        <td data-label="Fee">${fmt(d.delivery_fee)}</td>
+                        <td><button class="btn btn-danger" style="padding:.25rem .55rem;font-size:.72rem"
+                            onclick="deleteDelivery(${d.id})">✕</button></td>
+                    </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>
+            ${fees > 0 ? `<div class="vendor-fee-row">Total Delivery Fees: ${fmt(fees)}</div>` : ''}
+        </div>`;
+    }).join('');
+}
+
+function renderExpenses() {
+    const el = document.getElementById('expensesList');
+    if (!allExpenses.length) {
+        el.innerHTML = '<p style="color:#6B7280">No expenses for this date.</p>';
+        return;
+    }
+    el.innerHTML = `
+        <div class="table-wrapper">
+            <table>
+                <thead><tr><th>#</th><th>Description</th><th>Amount</th><th></th></tr></thead>
+                <tbody>
+                ${allExpenses.map((e,i) => `<tr>
+                    <td data-label="#">${i+1}</td>
+                    <td data-label="Description">${e.description}</td>
+                    <td data-label="Amount">${fmt(e.amount)}</td>
+                    <td><button class="btn btn-danger" style="padding:.25rem .55rem;font-size:.72rem"
+                        onclick="deleteExpense(${e.id})">✕</button></td>
+                </tr>`).join('')}
+                </tbody>
+            </table>
+        </div>`;
+}
+
+function renderSummary() {
+    const sales = allDeliveries.reduce((s,d) => s + parseFloat(d.price) * d.quantity, 0);
+    const fees  = allDeliveries.reduce((s,d) => s + parseFloat(d.delivery_fee), 0);
+    const exp   = allExpenses.reduce((s,e) => s + parseFloat(e.amount), 0);
+    document.getElementById('sumSales').textContent   = fmt(sales);
+    document.getElementById('sumFees').textContent    = fmt(fees);
+    document.getElementById('sumExp').textContent     = fmt(exp);
+    document.getElementById('sumBalance').textContent = fmt(sales - exp);
+}
+
+// ── Delete ────────────────────────────────────────────────
+async function deleteDelivery(id) {
+    if (!confirm('Remove this delivery? Stock will be restored.')) return;
+    const r = await apiRequest(`/api/deliveries/${id}/`, {method:'DELETE'});
+    if (r.ok || r.status === 204) {
+        allDeliveries = allDeliveries.filter(d => d.id !== id);
+        renderDeliveries(); renderSummary();
+    }
+}
+
+async function deleteExpense(id) {
+    if (!confirm('Remove this expense?')) return;
+    const r = await apiRequest(`/api/expenses/${id}/`, {method:'DELETE'});
+    if (r.ok || r.status === 204) {
+        allExpenses = allExpenses.filter(e => e.id !== id);
+        renderExpenses(); renderSummary();
+    }
+}
+
+// ── Submit forms ──────────────────────────────────────────
+document.getElementById('deliveryForm').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const alertEl = document.getElementById('delAlert');
+    alertEl.innerHTML = '';
+    const data = {
+        vendor:       parseInt(document.getElementById('delVendor').value),
+        product:      parseInt(document.getElementById('delProduct').value),
+        quantity:     parseInt(document.getElementById('delQty').value),
+        price:        parseFloat(document.getElementById('delPrice').value),
+        delivery_fee: parseFloat(document.getElementById('delFee').value) || 0,
+        date:         document.getElementById('reportDate').value,
+    };
+    try {
+        const r = await apiRequest('/api/deliveries/', {method:'POST', body:JSON.stringify(data)});
+        if (!r.ok) {
+            const err = await r.json();
+            alertEl.innerHTML = `<div class="alert alert-error">${Object.values(err).flat().join(' ')}</div>`;
+            return;
+        }
+        allDeliveries.push(await r.json());
+        renderDeliveries(); renderSummary();
+        // Keep vendor, reset product/price/qty/fee
+        document.getElementById('delProduct').innerHTML = '<option value="">Select product…</option>';
+        document.getElementById('delPrice').value = '';
+        document.getElementById('delQty').value = 1;
+        document.getElementById('delFee').value = 0;
+        onVendorChange();
+    } catch(e) {
+        alertEl.innerHTML = `<div class="alert alert-error">${e.message}</div>`;
+    }
+});
+
+document.getElementById('expenseForm').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const alertEl = document.getElementById('expAlert');
+    alertEl.innerHTML = '';
+    const data = {
+        description: document.getElementById('expDesc').value,
+        amount:      parseFloat(document.getElementById('expAmount').value),
+        date:        document.getElementById('reportDate').value,
+    };
+    try {
+        const r = await apiRequest('/api/expenses/', {method:'POST', body:JSON.stringify(data)});
+        if (!r.ok) {
+            const err = await r.json();
+            alertEl.innerHTML = `<div class="alert alert-error">${Object.values(err).flat().join(' ')}</div>`;
+            return;
+        }
+        allExpenses.push(await r.json());
+        renderExpenses(); renderSummary();
+        document.getElementById('expenseForm').reset();
+    } catch(e) {
+        alertEl.innerHTML = `<div class="alert alert-error">${e.message}</div>`;
+    }
+});
+
+// ── Copy report ───────────────────────────────────────────
+function copyReport() {
+    if (!allDeliveries.length && !allExpenses.length) {
+        alert('Nothing to copy yet — add deliveries or expenses first.');
+        return;
+    }
+
+    const dateStr = document.getElementById('reportDate').value;
+    const dateFmt = new Date(dateStr + 'T00:00:00').toLocaleDateString('en-NG', {
+        weekday:'long', day:'numeric', month:'long', year:'numeric'
+    });
+
+    const groups = {};
+    allDeliveries.forEach(d => (groups[d.vendor_name] = groups[d.vendor_name] || []).push(d));
+
+    let text = `DAILY REPORT — ${dateFmt}\n${'═'.repeat(44)}\n`;
+
+    if (allDeliveries.length) {
+        text += '\nDELIVERED ORDERS\n' + '─'.repeat(30) + '\n';
+        let n = 1;
+        Object.entries(groups).forEach(([vname, entries]) => {
+            text += `\n[${vname.toUpperCase()}]\n`;
+            entries.forEach(d => {
+                const total = parseFloat(d.price) * d.quantity;
+                text += `  ${n++}. ${d.product_name}`;
+                if (d.quantity > 1) text += ` ×${d.quantity}`;
+                text += ` — ₦${total.toLocaleString('en-NG', {minimumFractionDigits:2})}`;
+                const fee = parseFloat(d.delivery_fee);
+                if (fee > 0) text += ` (+₦${fee.toLocaleString('en-NG', {minimumFractionDigits:2})} fee)`;
+                text += '\n';
+            });
+            const sub = entries.reduce((s,d) => s + parseFloat(d.price) * d.quantity, 0);
+            text += `  Subtotal: ₦${sub.toLocaleString('en-NG', {minimumFractionDigits:2})}\n`;
+        });
+    }
+
+    if (allExpenses.length) {
+        text += '\n' + '─'.repeat(30) + '\nEXPENSES\n';
+        allExpenses.forEach((e,i) => {
+            text += `  ${i+1}. ${e.description} — ₦${parseFloat(e.amount).toLocaleString('en-NG', {minimumFractionDigits:2})}\n`;
+        });
+        const totalExp = allExpenses.reduce((s,e) => s + parseFloat(e.amount), 0);
+        text += `  Total: ₦${totalExp.toLocaleString('en-NG', {minimumFractionDigits:2})}\n`;
+    }
+
+    const sales   = allDeliveries.reduce((s,d) => s + parseFloat(d.price) * d.quantity, 0);
+    const fees    = allDeliveries.reduce((s,d) => s + parseFloat(d.delivery_fee), 0);
+    const exp     = allExpenses.reduce((s,e) => s + parseFloat(e.amount), 0);
+    const balance = sales - exp;
+
+    text += `\n${'═'.repeat(44)}\nSUMMARY\n`;
+    text += `Total Sales:    ₦${sales.toLocaleString('en-NG', {minimumFractionDigits:2})}\n`;
+    if (fees > 0) text += `Delivery Fees:  ₦${fees.toLocaleString('en-NG', {minimumFractionDigits:2})}\n`;
+    if (exp > 0)  text += `Total Expenses: ₦${exp.toLocaleString('en-NG', {minimumFractionDigits:2})}\n`;
+    text += `Balance:        ₦${balance.toLocaleString('en-NG', {minimumFractionDigits:2})}\n`;
+
+    const btn = document.getElementById('copyBtn');
+    navigator.clipboard.writeText(text).then(() => {
+        btn.textContent = '✓ Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy Report'; btn.classList.remove('copied'); }, 2500);
+    }).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        btn.textContent = '✓ Copied!';
+        setTimeout(() => btn.textContent = 'Copy Report', 2500);
+    });
+}
+</script>
+{% endblock %}

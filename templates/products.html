@@ -16,6 +16,7 @@
         <form id="productForm">
             <div class="form-group"><label>Name</label><input type="text" id="productName" required></div>
             <div class="form-group"><label>Description</label><textarea id="productDescription" rows="3" required></textarea></div>
+            <div class="form-group"><label>Default Price (₦)</label><input type="number" id="productPrice" step="0.01" min="0" value="0" required></div>
             <div class="form-group"><label>Vendor</label><select id="productVendor" required></select></div>
             <input type="hidden" id="productId">
             <div class="modal-actions">
@@ -44,11 +45,12 @@ async function loadProducts() {
         if (!products.length) { document.getElementById('productsTable').innerHTML='<p style="color:#6B7280;padding:1rem 0">No products yet.</p>'; return; }
         document.getElementById('productsTable').innerHTML = `
             <table>
-                <thead><tr><th>Name</th><th>Description</th><th>Vendor</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Name</th><th>Description</th><th>Price</th><th>Vendor</th><th>Actions</th></tr></thead>
                 <tbody>${products.map(p=>`
                     <tr>
                         <td data-label="Name">${p.name}</td>
                         <td data-label="Description">${p.description}</td>
+                        <td data-label="Price" style="font-weight:600;color:#10B981">₦${parseFloat(p.price).toLocaleString('en-NG',{minimumFractionDigits:2})}</td>
                         <td data-label="Vendor">${p.vendor_name}</td>
                         <td data-label="Actions" style="display:flex;gap:0.5rem;flex-wrap:wrap;">
                             <button class="btn btn-primary" onclick="editProduct(${p.id})">Edit</button>
@@ -70,6 +72,7 @@ async function editProduct(id) {
         document.getElementById('modalTitle').textContent='Edit Product';
         document.getElementById('productName').value=p.name;
         document.getElementById('productDescription').value=p.description;
+        document.getElementById('productPrice').value=parseFloat(p.price).toFixed(2);
         document.getElementById('productVendor').value=p.vendor;
         document.getElementById('productModal').style.display='flex';
     } catch(e) { alert(e.message); }
@@ -83,7 +86,12 @@ async function deleteProduct(id) {
 
 document.getElementById('productForm').addEventListener('submit', async e => {
     e.preventDefault();
-    const data = { name: document.getElementById('productName').value, description: document.getElementById('productDescription').value, vendor: parseInt(document.getElementById('productVendor').value) };
+    const data = {
+        name: document.getElementById('productName').value,
+        description: document.getElementById('productDescription').value,
+        price: parseFloat(document.getElementById('productPrice').value),
+        vendor: parseInt(document.getElementById('productVendor').value)
+    };
     try {
         const r = await apiRequest(editingId?`/api/products/${editingId}/`:'/api/products/', {method:editingId?'PUT':'POST',body:JSON.stringify(data)});
         if (!r.ok) throw new Error(JSON.stringify(await r.json()));
