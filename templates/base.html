@@ -503,8 +503,6 @@
             }
         });
 
-        const API_BASE_URL = 'https://sageinv.vercel.app';
-
         async function apiRequest(url, options = {}) {
             const token = localStorage.getItem('auth_token');
             const headers = {
@@ -512,7 +510,7 @@
                 'Authorization': `Token ${token}`,
                 ...(options.headers || {})
             };
-            const response = await fetch(`${API_BASE_URL}${url}`, { ...options, headers });
+            const response = await fetch(url, { ...options, headers });
             if (response.status === 401) { logout(); throw new Error('Unauthorized'); }
             return response;
         }

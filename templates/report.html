@@ -93,7 +93,11 @@
 <!-- Toolbar -->
 <div class="toolbar" style="margin-bottom:1.25rem">
     <h1 class="page-title" style="margin:0;flex:1">Daily Report</h1>
-    <input type="date" id="reportDate" class="date-input">
+    <div style="display:flex;align-items:center;gap:0.4rem">
+        <button class="btn" style="padding:.4rem .65rem;font-size:1rem;line-height:1" onclick="shiftDate(-1)" title="Previous day">&#8249;</button>
+        <input type="date" id="reportDate" class="date-input">
+        <button class="btn" style="padding:.4rem .65rem;font-size:1rem;line-height:1" onclick="shiftDate(1)" title="Next day">&#8250;</button>
+    </div>
     <button class="btn btn-copy" id="copyBtn" onclick="copyReport()">Copy Report</button>
 </div>
 
@@ -202,6 +206,14 @@ let productCache  = {};   // { vendorId: [product, ...] }
 const today = new Date().toISOString().split('T')[0];
 document.getElementById('reportDate').value = today;
 document.getElementById('reportDate').addEventListener('change', loadReportData);
+
+function shiftDate(days) {
+    const input = document.getElementById('reportDate');
+    const d = new Date(input.value + 'T00:00:00');
+    d.setDate(d.getDate() + days);
+    input.value = d.toISOString().split('T')[0];
+    loadReportData();
+}
 
 (async function init() {
     try {
