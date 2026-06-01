@@ -103,6 +103,8 @@ class DeliveryEntry(models.Model):
     price = models.DecimalField(max_digits=10, decimal_places=2)
     delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     quantity = models.PositiveIntegerField(default=1)
+    rider = models.CharField(max_length=200, blank=True)
+    location = models.CharField(max_length=300, blank=True)
     date = models.DateField(default=datetime.date.today)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

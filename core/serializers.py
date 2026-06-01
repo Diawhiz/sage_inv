@@ -65,7 +65,7 @@ class DeliveryEntrySerializer(serializers.ModelSerializer):
         model = DeliveryEntry
         fields = [
             'id', 'vendor', 'vendor_name', 'product', 'product_name',
-            'price', 'delivery_fee', 'quantity', 'date',
+            'price', 'delivery_fee', 'quantity', 'rider', 'location', 'date',
             'created_by', 'created_by_username',
         ]
         read_only_fields = ['created_by']
