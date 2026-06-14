@@ -4,13 +4,32 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate, get_user_model
-from .models import Vendor, Product, Stock, MissingStock, MissingStockLog, DeliveryEntry, Expense
+from .models import Location, Vendor, Product, Stock, MissingStock, MissingStockLog, DeliveryEntry, Expense
 from .serializers import (
-    UserSerializer, VendorSerializer, ProductSerializer,
+    LocationSerializer, UserSerializer, VendorSerializer, ProductSerializer,
     StockSerializer, MissingStockSerializer, DeliveryEntrySerializer, ExpenseSerializer,
 )
 
 User = get_user_model()
+
+
+def get_location_filtered_queryset(user, queryset, request=None, location_field='location'):
+    """Filter queryset by user's location access level and optional query param."""
+    if user.has_location_access and request:
+        selected = request.query_params.get('location')
+        if selected:
+            return queryset.filter(**{location_field: selected})
+        return queryset
+    if user.location:
+        return queryset.filter(**{location_field: user.location})
+    return queryset.none()
+
+
+def set_location_from_user(user, serializer, data):
+    """Auto-assign location from user if user is location-restricted."""
+    if not user.has_location_access and user.location:
+        data['location'] = user.location.id
+    return data
 
 
 @api_view(['POST'])
@@ -20,39 +39,101 @@ def login_view(request):
     password = request.data.get('password')
 
     if not username or not password:
-        return Response({'error': 'Username and password required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {'error': 'Username and password required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
     user = authenticate(username=username, password=password)
     if user:
         token, _ = Token.objects.get_or_create(user=user)
-        return Response({'token': token.key, 'user': UserSerializer(user).data})
-    return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
+        return Response({
+            'token': token.key,
+            'user': UserSerializer(user).data,
+        })
+    return Response(
+        {'error': 'Invalid credentials'},
+        status=status.HTTP_401_UNAUTHORIZED
+    )
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def register_view(request):
-    if not request.user.is_superuser:
-        return Response({'error': 'Only superusers can register new users'}, status=status.HTTP_403_FORBIDDEN)
+    if not request.user.can_register_users:
+        return Response(
+            {'error': 'Only CEOs and superusers can register new users'},
+            status=status.HTTP_403_FORBIDDEN
+        )
 
     username = request.data.get('username')
     password = request.data.get('password')
     email = request.data.get('email', '')
+    role = request.data.get('role', 'staff')
+    location_id = request.data.get('location')
 
     if not username or not password:
-        return Response({'error': 'Username and password required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {'error': 'Username and password required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
     if User.objects.filter(username=username).exists():
-        return Response({'error': 'Username already exists'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {'error': 'Username already exists'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
-    user = User.objects.create_user(username=username, password=password, email=email)
+    location = None
+    if location_id:
+        try:
+            location = Location.objects.get(id=location_id)
+        except Location.DoesNotExist:
+            return Response(
+                {'error': 'Location not found'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    user = User.objects.create_user(
+        username=username,
+        password=password,
+        email=email,
+        role=role,
+        location=location,
+    )
     return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def current_user_view(request):
+    return Response(UserSerializer(request.user).data)
+
+
+class LocationViewSet(viewsets.ModelViewSet):
+    queryset = Location.objects.all()
+    serializer_class = LocationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.has_location_access:
+            return Location.objects.all()
+        if user.location:
+            return Location.objects.filter(id=user.location.id)
+        return Location.objects.none()
+
+
 class VendorViewSet(viewsets.ModelViewSet):
-    queryset = Vendor.objects.all()
     serializer_class = VendorSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user.can_access_operations:
+            return Vendor.objects.none()
+        qs = Vendor.objects.all()
+        return get_location_filtered_queryset(user, qs, self.request)
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
@@ -63,17 +144,26 @@ class ProductViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        user = self.request.user
+        if not user.can_access_operations:
+            return Product.objects.none()
         qs = Product.objects.all()
         vendor_id = self.request.query_params.get('vendor')
         if vendor_id:
             qs = qs.filter(vendor_id=vendor_id)
-        return qs
+        return get_location_filtered_queryset(user, qs, self.request)
 
 
 class StockViewSet(viewsets.ModelViewSet):
-    queryset = Stock.objects.all()
     serializer_class = StockSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user.can_access_operations:
+            return Stock.objects.none()
+        qs = Stock.objects.all()
+        return get_location_filtered_queryset(user, qs, self.request)
 
     def perform_create(self, serializer):
         serializer.save(updated_by=self.request.user)
@@ -91,13 +181,18 @@ class MissingStockViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        if not self.request.user.is_superuser:
+        user = self.request.user
+        if not user.can_access_missing_stock:
             return MissingStock.objects.none()
-        return MissingStock.objects.prefetch_related('logs').all()
+        qs = MissingStock.objects.prefetch_related('logs').all()
+        return get_location_filtered_queryset(user, qs, self.request)
 
     def create(self, request, *args, **kwargs):
-        if not request.user.is_superuser:
-            return Response({'error': 'Superusers only'}, status=status.HTTP_403_FORBIDDEN)
+        if not request.user.can_access_missing_stock:
+            return Response(
+                {'error': 'CEO and COO only'},
+                status=status.HTTP_403_FORBIDDEN
+            )
         response = super().create(request, *args, **kwargs)
         instance = MissingStock.objects.get(pk=response.data['id'])
         MissingStockLog.objects.create(
@@ -105,6 +200,7 @@ class MissingStockViewSet(viewsets.ModelViewSet):
             quantity=instance.quantity_missing,
             note='Initial report',
             updated_by=request.user,
+            location=instance.location,
         )
         return response
 
@@ -117,6 +213,7 @@ class MissingStockViewSet(viewsets.ModelViewSet):
                 quantity=updated.quantity_missing,
                 note=self.request.data.get('note', ''),
                 updated_by=self.request.user,
+                location=updated.location,
             )
 
 
@@ -125,11 +222,14 @@ class DeliveryEntryViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        user = self.request.user
+        if not user.can_access_calculations and not user.can_access_operations:
+            return DeliveryEntry.objects.none()
         qs = DeliveryEntry.objects.select_related('vendor', 'product', 'created_by')
         date = self.request.query_params.get('date')
         if date:
             qs = qs.filter(date=date)
-        return qs
+        return get_location_filtered_queryset(user, qs, self.request)
 
     def perform_create(self, serializer):
         entry = serializer.save(created_by=self.request.user)
@@ -142,7 +242,6 @@ class DeliveryEntryViewSet(viewsets.ModelViewSet):
             pass
 
     def perform_destroy(self, instance):
-        # Restore stock when a delivery entry is deleted
         try:
             stock = Stock.objects.get(product=instance.product)
             stock.quantity += instance.quantity
@@ -157,11 +256,14 @@ class ExpenseViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        user = self.request.user
+        if not user.can_access_calculations and not user.can_access_operations:
+            return Expense.objects.none()
         qs = Expense.objects.all()
         date = self.request.query_params.get('date')
         if date:
             qs = qs.filter(date=date)
-        return qs
+        return get_location_filtered_queryset(user, qs, self.request)
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)

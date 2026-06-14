@@ -418,11 +418,14 @@
             <!-- Desktop links -->
             <div class="nav-links">
                 <a href="/dashboard/">Dashboard</a>
-                <a href="/vendors/">Vendors</a>
-                <a href="/products/">Products</a>
-                <a href="/stock/">Stock</a>
-                <a href="/report/">Report</a>
+                <a href="/vendors/" id="navVendors">Vendors</a>
+                <a href="/products/" id="navProducts">Products</a>
+                <a href="/stock/" id="navStock">Stock</a>
+                <a href="/report/" id="navReport">Report</a>
                 <a href="/missing-stock/" id="missingStockLink" style="display: none;">Missing Stock</a>
+                <select id="locationFilter" style="display:none;padding:0.3rem 0.5rem;border-radius:0.4rem;border:1px solid var(--border);font-size:0.8rem;background:white;cursor:pointer;">
+                    <option value="">All Locations</option>
+                </select>
                 <a href="#" onclick="logout()" class="logout-btn">Logout</a>
             </div>
 
@@ -436,10 +439,10 @@
     <!-- Mobile drawer -->
     <div class="mobile-menu" id="mobileMenu">
         <a href="/dashboard/" onclick="closeMenu()">📊 Dashboard</a>
-        <a href="/vendors/" onclick="closeMenu()">🏪 Vendors</a>
-        <a href="/products/" onclick="closeMenu()">📦 Products</a>
-        <a href="/stock/" onclick="closeMenu()">🗃️ Stock</a>
-        <a href="/report/" onclick="closeMenu()">📋 Report</a>
+        <a href="/vendors/" id="mobileVendors" onclick="closeMenu()">🏪 Vendors</a>
+        <a href="/products/" id="mobileProducts" onclick="closeMenu()">📦 Products</a>
+        <a href="/stock/" id="mobileStock" onclick="closeMenu()">🗃️ Stock</a>
+        <a href="/report/" id="mobileReport" onclick="closeMenu()">📋 Report</a>
         <a href="/missing-stock/" id="missingStockMobile" style="display:none;" onclick="closeMenu()">⚠️ Missing Stock</a>
         <a href="#" onclick="logout()" class="logout-mobile">🚪 Logout</a>
     </div>
@@ -448,21 +451,64 @@
     <script>
         const token = localStorage.getItem('auth_token');
         const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const userRole = localStorage.getItem('user_role') || 'staff';
+        const hasLocationAccess = localStorage.getItem('has_location_access') === '1';
+        const canAccessOperations = localStorage.getItem('can_access_operations') === '1';
+        const canAccessCalculations = localStorage.getItem('can_access_calculations') === '1';
+        const canAccessMissingStock = localStorage.getItem('can_access_missing_stock') === '1';
 
         const publicPaths = ['/', '/login/'];
         if (!token && !publicPaths.includes(window.location.pathname)) {
             window.location.href = '/';
         }
 
-        if (window.location.pathname.includes('missing-stock') && !user.is_superuser) {
+        // Role-based page guards
+        const path = window.location.pathname;
+        if (path.includes('missing-stock') && !canAccessMissingStock) {
+            window.location.href = '/dashboard/';
+        }
+        if ((path.includes('/vendors/') || path.includes('/products/') || path.includes('/stock/')) && !canAccessOperations) {
+            window.location.href = '/dashboard/';
+        }
+        if (path.includes('/report/') && !canAccessCalculations) {
             window.location.href = '/dashboard/';
         }
 
-        if (user.is_superuser) {
-            ['missingStockLink', 'missingStockMobile'].forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.style.display = 'block';
-            });
+        // Show/hide nav items based on role
+        function setNavVisibility(id, visible) {
+            const el = document.getElementById(id);
+            if (el) el.style.display = visible ? '' : 'none';
+        }
+
+        setNavVisibility('navVendors', canAccessOperations);
+        setNavVisibility('navProducts', canAccessOperations);
+        setNavVisibility('navStock', canAccessOperations);
+        setNavVisibility('navReport', canAccessCalculations);
+        setNavVisibility('mobileVendors', canAccessOperations);
+        setNavVisibility('mobileProducts', canAccessOperations);
+        setNavVisibility('mobileStock', canAccessOperations);
+        setNavVisibility('mobileReport', canAccessCalculations);
+        setNavVisibility('missingStockLink', canAccessMissingStock);
+        setNavVisibility('missingStockMobile', canAccessMissingStock);
+
+        // Location filter for multi-location users
+        async function loadLocationFilter() {
+            if (!hasLocationAccess) return;
+            const select = document.getElementById('locationFilter');
+            if (!select) return;
+            try {
+                const r = await apiRequest('/api/locations/');
+                const locations = await r.json();
+                select.innerHTML = '<option value="">All Locations</option>' +
+                    locations.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+                select.style.display = 'inline-block';
+                const saved = localStorage.getItem('selected_location');
+                if (saved) select.value = saved;
+                select.addEventListener('change', () => {
+                    localStorage.setItem('selected_location', select.value);
+                    window.location.reload();
+                });
+            } catch(e) { console.error('Failed to load locations', e); }
         }
 
         // Highlight active nav link
@@ -478,6 +524,13 @@
         function logout() {
             localStorage.removeItem('auth_token');
             localStorage.removeItem('user');
+            localStorage.removeItem('user_role');
+            localStorage.removeItem('user_location');
+            localStorage.removeItem('has_location_access');
+            localStorage.removeItem('can_access_operations');
+            localStorage.removeItem('can_access_calculations');
+            localStorage.removeItem('can_access_missing_stock');
+            localStorage.removeItem('selected_location');
             window.location.href = '/';
         }
 
@@ -512,10 +565,23 @@
                 'Authorization': `Token ${token}`,
                 ...(options.headers || {})
             };
-            const response = await fetch(`${API_BASE_URL}${url}`, { ...options, headers });
+            const selectedLocation = localStorage.getItem('selected_location');
+            let fullUrl = `${API_BASE_URL}${url}`;
+            if (selectedLocation && !url.includes('?')) {
+                fullUrl += `?location=${selectedLocation}`;
+            } else if (selectedLocation) {
+                fullUrl += `&location=${selectedLocation}`;
+            }
+            const response = await fetch(fullUrl, { ...options, headers });
             if (response.status === 401) { logout(); throw new Error('Unauthorized'); }
+            if (response.status === 403) {
+                alert('You do not have permission to access this resource.');
+                throw new Error('Forbidden');
+            }
             return response;
         }
+
+        if (token) loadLocationFilter();
     </script>
 
     <div class="container">

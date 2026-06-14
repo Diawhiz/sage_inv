@@ -376,6 +376,12 @@
                 if (response.ok) {
                     localStorage.setItem('auth_token', data.token);
                     localStorage.setItem('user', JSON.stringify(data.user));
+                    localStorage.setItem('user_role', data.user.role || 'staff');
+                    localStorage.setItem('user_location', data.user.location || '');
+                    localStorage.setItem('has_location_access', data.user.has_location_access ? '1' : '0');
+                    localStorage.setItem('can_access_operations', data.user.can_access_operations ? '1' : '0');
+                    localStorage.setItem('can_access_calculations', data.user.can_access_calculations ? '1' : '0');
+                    localStorage.setItem('can_access_missing_stock', data.user.can_access_missing_stock ? '1' : '0');
                     loginBtn.querySelector('.btn-text').textContent = '✓ Redirecting...';
                     statusEl.textContent = '● authenticated';
                     statusEl.className = 'status ok';

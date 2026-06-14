@@ -13,6 +13,7 @@ def ping(request):
 
 
 router = DefaultRouter()
+router.register(r'locations', views.LocationViewSet, basename='location')
 router.register(r'vendors', views.VendorViewSet, basename='vendor')
 router.register(r'products', views.ProductViewSet, basename='product')
 router.register(r'stock', views.StockViewSet, basename='stock')
@@ -23,6 +24,7 @@ router.register(r'expenses', views.ExpenseViewSet, basename='expense')
 urlpatterns = [
     path('auth/login/', views.login_view, name='login'),
     path('auth/register/', views.register_view, name='register'),
+    path('user/', views.current_user_view, name='current_user'),
     path('', include(router.urls)),
     path('ping/', ping, name='ping'),
 ]
