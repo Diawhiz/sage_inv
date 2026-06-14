@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-pip install --break-system-packages -r requirements.txt
+pip install -r requirements.txt
 python manage.py collectstatic --noinput
 python manage.py migrate
 python manage.py shell -c "
