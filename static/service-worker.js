@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sage-inv-v1';
+const CACHE_NAME = 'sageinv-v1';
 const STATIC_ASSETS = [
   '/',
   '/dashboard/',
