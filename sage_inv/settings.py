@@ -33,7 +33,8 @@ ALLOWED_HOSTS = [
     '127.0.0.1',
     '.diawhiz.com.ng',
     '.pxxl.click',
-    '10.88.0.13',
+    '10.88.0.11',
+    'sageinv.pxxl.click',
 ]
 
 
