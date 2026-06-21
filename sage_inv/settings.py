@@ -31,8 +31,9 @@ DEBUG = config('DEBUG', default=False, cast=bool)
 ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
-    '.vercel.app',
     '.diawhiz.com.ng',
+    '.pxxl.click',
+    '10.88.0.13',
 ]
 
 

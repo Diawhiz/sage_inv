@@ -19,3 +19,4 @@ env/
 # IDE
 .vscode/
 .idea/
+.commandcode/
