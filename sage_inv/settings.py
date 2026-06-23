@@ -100,7 +100,7 @@ WSGI_APPLICATION = 'sage_inv.wsgi.application'
 
 DATABASES = {
     'default': dj_database_url.config(
-        default=config('JAWSDB_URL', default=f'sqlite:///{BASE_DIR / "db.sqlite3"}'),
+        default=config('DATABASE_URL'),
         conn_max_age=600,
     )
 }
