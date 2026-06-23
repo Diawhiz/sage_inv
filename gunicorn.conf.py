@@ -23,7 +23,7 @@ errorlog = "-"
 loglevel = os.environ.get('LOG_LEVEL', 'info')
 
 # Process naming
-proc_name = "curiousbright"
+proc_name = "sageinv"
 
 # Server mechanics
 daemon = False
