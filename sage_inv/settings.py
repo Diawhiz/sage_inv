@@ -28,17 +28,20 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-change-me-in-producti
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = [
-    'localhost',
-    '127.0.0.1',
-    '.diawhiz.com.ng',
-    '.herokuapp.com',
-]
+def _csv_env(key, default=''):
+    return [item.strip() for item in config(key, default=default).split(',') if item.strip()]
+
+
+ALLOWED_HOSTS = _csv_env(
+    'ALLOWED_HOSTS',
+    'localhost,127.0.0.1,.diawhiz.com.ng,.herokuapp.com',
+)
 
 
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',  # must precede staticfiles so runserver uses the ASGI/Channels server
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -48,6 +51,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'corsheaders',
+    'channels',
     'whitenoise.runserver_nostatic',
     'core',
 ]
@@ -73,7 +77,11 @@ REST_FRAMEWORK = {
     ],
 }
 
-CORS_ALLOW_ALL_ORIGINS = True
+# CORS: open in development, explicit allow-list in production.
+CORS_ALLOWED_ORIGINS = _csv_env('CORS_ALLOWED_ORIGINS')
+CORS_ALLOW_ALL_ORIGINS = DEBUG and not CORS_ALLOWED_ORIGINS
+
+CSRF_TRUSTED_ORIGINS = _csv_env('CSRF_TRUSTED_ORIGINS')
 
 ROOT_URLCONF = 'sage_inv.urls'
 
@@ -100,12 +108,28 @@ WSGI_APPLICATION = 'sage_inv.wsgi.application'
 
 DATABASES = {
     'default': dj_database_url.config(
-        default=config('AIVEN_DATABASE_URL', default='sqlite:///db.sqlite3'),
+        default=config('DATABASE_URL', default='sqlite:///db.sqlite3'),
         conn_max_age=600,
     )
 }
 
 AUTH_USER_MODEL = 'core.User'
+
+# Channels (WebSockets) — Redis in production, in-memory for local dev.
+ASGI_APPLICATION = 'sage_inv.asgi.application'
+
+REDIS_URL = config('REDIS_URL', default='')
+if REDIS_URL:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {'hosts': [REDIS_URL]},
+        }
+    }
+else:
+    CHANNEL_LAYERS = {
+        'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'},
+    }
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
@@ -147,3 +171,17 @@ STATICFILES_DIRS = [
     os.path.join(BASE_DIR, 'static'),
 ]
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+
+# Security hardening — active when DEBUG is off (i.e. production).
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = 'DENY'
+
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True

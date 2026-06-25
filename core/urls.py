@@ -13,11 +13,11 @@ def ping(request):
 
 
 router = DefaultRouter()
+router.register(r'regions', views.RegionViewSet, basename='region')
 router.register(r'locations', views.LocationViewSet, basename='location')
 router.register(r'vendors', views.VendorViewSet, basename='vendor')
 router.register(r'products', views.ProductViewSet, basename='product')
 router.register(r'stock', views.StockViewSet, basename='stock')
-router.register(r'missing-stock', views.MissingStockViewSet, basename='missing-stock')
 router.register(r'deliveries', views.DeliveryEntryViewSet, basename='delivery')
 router.register(r'expenses', views.ExpenseViewSet, basename='expense')
 

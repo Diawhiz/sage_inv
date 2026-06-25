@@ -4,32 +4,65 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate, get_user_model
-from .models import Location, Vendor, Product, Stock, MissingStock, MissingStockLog, DeliveryEntry, Expense
+from .models import Region, Location, Vendor, Product, Stock, DeliveryEntry, Expense
 from .serializers import (
-    LocationSerializer, UserSerializer, VendorSerializer, ProductSerializer,
-    StockSerializer, MissingStockSerializer, DeliveryEntrySerializer, ExpenseSerializer,
+    RegionSerializer, LocationSerializer, UserSerializer, VendorSerializer,
+    ProductSerializer, StockSerializer, DeliveryEntrySerializer, ExpenseSerializer,
 )
+from .broadcast import broadcast_report_event
 
 User = get_user_model()
 
 
+def allowed_location_ids(user):
+    """Resolve the set of Location ids a user may access, or None for ALL."""
+    if user.has_location_access:
+        return None  # global roles see everything
+    if user.is_regional_manager and user.region_id:
+        return list(
+            Location.objects.filter(region_id=user.region_id).values_list('id', flat=True)
+        )
+    if user.is_agent:
+        return list(user.assigned_locations.values_list('id', flat=True))
+    if user.location_id:
+        return [user.location_id]
+    return []
+
+
 def get_location_filtered_queryset(user, queryset, request=None, location_field='location'):
-    """Filter queryset by user's location access level and optional query param."""
-    if user.has_location_access and request:
-        selected = request.query_params.get('location')
-        if selected:
-            return queryset.filter(**{location_field: selected})
+    """Filter queryset by the user's location access level and optional query params."""
+    allowed = allowed_location_ids(user)
+    if allowed is None:
+        # Global access: honor optional explicit filters.
+        if request:
+            selected = request.query_params.get('location')
+            if selected:
+                return queryset.filter(**{location_field: selected})
+            region = request.query_params.get('region')
+            if region:
+                return queryset.filter(**{f'{location_field}__region': region})
         return queryset
-    if user.location:
-        return queryset.filter(**{location_field: user.location})
-    return queryset.none()
+    if not allowed:
+        return queryset.none()
+    return queryset.filter(**{f'{location_field}__in': allowed})
 
 
-def set_location_from_user(user, serializer, data):
-    """Auto-assign location from user if user is location-restricted."""
-    if not user.has_location_access and user.location:
-        data['location'] = user.location.id
-    return data
+def default_location_for(user):
+    """The Location a write should be stamped with for a location-restricted user."""
+    if user.location_id:
+        return user.location_id
+    if user.is_agent:
+        return user.assigned_locations.values_list('id', flat=True).first()
+    return None
+
+
+def location_save_kwargs(user, serializer):
+    """Extra save() kwargs that stamp location for location-restricted users."""
+    if not user.has_location_access and not serializer.validated_data.get('location'):
+        loc_id = default_location_for(user)
+        if loc_id:
+            return {'location_id': loc_id}
+    return {}
 
 
 @api_view(['POST'])
@@ -110,6 +143,21 @@ def current_user_view(request):
     return Response(UserSerializer(request.user).data)
 
 
+class RegionViewSet(viewsets.ModelViewSet):
+    serializer_class = RegionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.has_location_access:
+            return Region.objects.all()
+        if user.is_regional_manager and user.region_id:
+            return Region.objects.filter(id=user.region_id)
+        if user.location and user.location.region_id:
+            return Region.objects.filter(id=user.location.region_id)
+        return Region.objects.none()
+
+
 class LocationViewSet(viewsets.ModelViewSet):
     queryset = Location.objects.all()
     serializer_class = LocationSerializer
@@ -117,11 +165,12 @@ class LocationViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user.has_location_access:
-            return Location.objects.all()
-        if user.location:
-            return Location.objects.filter(id=user.location.id)
-        return Location.objects.none()
+        allowed = allowed_location_ids(user)
+        if allowed is None:
+            qs = Location.objects.all()
+            region = self.request.query_params.get('region')
+            return qs.filter(region=region) if region else qs
+        return Location.objects.filter(id__in=allowed)
 
 
 class VendorViewSet(viewsets.ModelViewSet):
@@ -136,7 +185,7 @@ class VendorViewSet(viewsets.ModelViewSet):
         return get_location_filtered_queryset(user, qs, self.request)
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        serializer.save(user=self.request.user, **location_save_kwargs(self.request.user, serializer))
 
 
 class ProductViewSet(viewsets.ModelViewSet):
@@ -153,6 +202,9 @@ class ProductViewSet(viewsets.ModelViewSet):
             qs = qs.filter(vendor_id=vendor_id)
         return get_location_filtered_queryset(user, qs, self.request)
 
+    def perform_create(self, serializer):
+        serializer.save(**location_save_kwargs(self.request.user, serializer))
+
 
 class StockViewSet(viewsets.ModelViewSet):
     serializer_class = StockSerializer
@@ -160,61 +212,21 @@ class StockViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if not user.can_access_operations:
+        if not user.can_view_stock:
             return Stock.objects.none()
         qs = Stock.objects.all()
         return get_location_filtered_queryset(user, qs, self.request)
 
     def perform_create(self, serializer):
-        serializer.save(updated_by=self.request.user)
+        serializer.save(updated_by=self.request.user, **location_save_kwargs(self.request.user, serializer))
 
     def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
         stock = self.get_object()
-        stock.quantity = request.data.get('quantity', stock.quantity)
-        stock.updated_by = request.user
-        stock.save()
-        return Response(self.get_serializer(stock).data)
-
-
-class MissingStockViewSet(viewsets.ModelViewSet):
-    serializer_class = MissingStockSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        user = self.request.user
-        if not user.can_access_missing_stock:
-            return MissingStock.objects.none()
-        qs = MissingStock.objects.prefetch_related('logs').all()
-        return get_location_filtered_queryset(user, qs, self.request)
-
-    def create(self, request, *args, **kwargs):
-        if not request.user.can_access_missing_stock:
-            return Response(
-                {'error': 'CEO and COO only'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        response = super().create(request, *args, **kwargs)
-        instance = MissingStock.objects.get(pk=response.data['id'])
-        MissingStockLog.objects.create(
-            missing_stock=instance,
-            quantity=instance.quantity_missing,
-            note='Initial report',
-            updated_by=request.user,
-            location=instance.location,
-        )
-        return response
-
-    def perform_update(self, serializer):
-        old_qty = serializer.instance.quantity_missing
-        updated = serializer.save()
-        if updated.quantity_missing != old_qty:
-            MissingStockLog.objects.create(
-                missing_stock=updated,
-                quantity=updated.quantity_missing,
-                note=self.request.data.get('note', ''),
-                updated_by=self.request.user,
-                location=updated.location,
-            )
+        serializer = self.get_serializer(stock, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(updated_by=request.user)
+        return Response(serializer.data)
 
 
 class DeliveryEntryViewSet(viewsets.ModelViewSet):
@@ -232,7 +244,10 @@ class DeliveryEntryViewSet(viewsets.ModelViewSet):
         return get_location_filtered_queryset(user, qs, self.request)
 
     def perform_create(self, serializer):
-        entry = serializer.save(created_by=self.request.user)
+        entry = serializer.save(
+            created_by=self.request.user,
+            **location_save_kwargs(self.request.user, serializer),
+        )
         try:
             stock = Stock.objects.get(product=entry.product)
             stock.quantity = max(0, stock.quantity - entry.quantity)
@@ -240,6 +255,7 @@ class DeliveryEntryViewSet(viewsets.ModelViewSet):
             stock.save()
         except Stock.DoesNotExist:
             pass
+        broadcast_report_event('delivery_created', DeliveryEntrySerializer(entry).data, entry.location)
 
     def perform_destroy(self, instance):
         try:
@@ -248,7 +264,10 @@ class DeliveryEntryViewSet(viewsets.ModelViewSet):
             stock.save()
         except Stock.DoesNotExist:
             pass
+        payload = {'id': instance.id}
+        location = instance.location
         instance.delete()
+        broadcast_report_event('delivery_deleted', payload, location)
 
 
 class ExpenseViewSet(viewsets.ModelViewSet):
@@ -266,4 +285,8 @@ class ExpenseViewSet(viewsets.ModelViewSet):
         return get_location_filtered_queryset(user, qs, self.request)
 
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        expense = serializer.save(
+            created_by=self.request.user,
+            **location_save_kwargs(self.request.user, serializer),
+        )
+        broadcast_report_event('expense_created', ExpenseSerializer(expense).data, expense.location)

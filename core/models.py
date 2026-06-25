@@ -4,10 +4,30 @@ from django.conf import settings
 import datetime
 
 
+class Region(models.Model):
+    """A geographic region (e.g. Osho) that groups several locations."""
+    name = models.CharField(max_length=200, unique=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
 class Location(models.Model):
     name = models.CharField(max_length=200)
     address = models.TextField(blank=True, default="")
     contact = models.CharField(max_length=200, blank=True, default="")
+    region = models.ForeignKey(
+        Region,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='locations',
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -23,7 +43,10 @@ class User(AbstractUser):
         ('ceo', 'CEO'),
         ('coo', 'COO'),
         ('cto', 'CTO'),
+        ('cfo', 'CFO'),
+        ('regional_manager', 'Regional Manager'),
         ('manager', 'Manager'),
+        ('agent', 'Agent'),
         ('staff', 'Staff'),
     ]
 
@@ -45,6 +68,20 @@ class User(AbstractUser):
         blank=True,
         related_name='users'
     )
+    region = models.ForeignKey(
+        Region,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='managers',
+        help_text='Region this user is in charge of (Regional Manager).',
+    )
+    assigned_locations = models.ManyToManyField(
+        Location,
+        blank=True,
+        related_name='assigned_users',
+        help_text='Specific locations an Agent is allowed to access.',
+    )
 
     class Meta:
         verbose_name = 'User'
@@ -53,6 +90,7 @@ class User(AbstractUser):
     def __str__(self):
         return f"{self.username} ({self.get_role_display()})"
 
+    # --- Role identity (each property is True for that role or anyone above it) ---
     @property
     def is_ceo(self):
         return self.role == 'ceo' or self.is_superuser
@@ -66,27 +104,47 @@ class User(AbstractUser):
         return self.role == 'cto' or self.is_ceo
 
     @property
+    def is_cfo(self):
+        return self.role == 'cfo' or self.is_ceo
+
+    @property
+    def is_regional_manager(self):
+        return self.role == 'regional_manager'
+
+    @property
     def is_manager(self):
         return self.role == 'manager' or self.is_coo or self.is_cto
 
     @property
+    def is_agent(self):
+        return self.role == 'agent'
+
+    # --- Access scope ---
+    @property
     def has_location_access(self):
-        """Returns True if user can access data from all locations."""
-        return self.is_ceo or self.is_coo or self.is_cto
+        """True if the user can access data from ALL locations/regions."""
+        return self.is_ceo or self.is_coo or self.is_cto or self.is_cfo
 
     @property
     def can_access_operations(self):
         """Vendors, Products, Stock, Deliveries."""
-        return self.is_ceo or self.is_coo or self.is_manager
+        return (
+            self.is_ceo or self.is_coo or self.is_manager
+            or self.is_regional_manager or self.is_agent
+        )
 
     @property
     def can_access_calculations(self):
-        """Reports, Expenses, Payment-related data."""
-        return self.is_ceo or self.is_cto or self.is_manager
+        """Reports, Expenses, Payment-related (finance) data."""
+        return (
+            self.is_ceo or self.is_cto or self.is_cfo
+            or self.is_manager or self.is_regional_manager
+        )
 
     @property
-    def can_access_missing_stock(self):
-        return self.is_ceo or self.is_coo
+    def can_view_stock(self):
+        """Stock visibility. CFO gets stock alongside finance."""
+        return self.can_access_operations or self.is_cfo
 
     @property
     def can_register_users(self):
@@ -165,52 +223,6 @@ class Stock(models.Model):
 
     def __str__(self):
         return f"{self.product.name} - {self.quantity} units"
-
-
-class MissingStock(models.Model):
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='missing_reports')
-    quantity_missing = models.IntegerField()
-    date_reported = models.DateTimeField(auto_now_add=True)
-    action_taken = models.TextField(blank=True)
-    location = models.ForeignKey(
-        Location,
-        on_delete=models.CASCADE,
-        related_name='missing_stock_reports',
-        null=True,
-        blank=True
-    )
-
-    class Meta:
-        ordering = ['-date_reported']
-
-    def __str__(self):
-        return f"{self.product.name} - Missing: {self.quantity_missing}"
-
-
-class MissingStockLog(models.Model):
-    missing_stock = models.ForeignKey(MissingStock, on_delete=models.CASCADE, related_name='logs')
-    quantity = models.IntegerField()
-    note = models.TextField(blank=True)
-    updated_at = models.DateTimeField(auto_now_add=True)
-    updated_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True
-    )
-    location = models.ForeignKey(
-        Location,
-        on_delete=models.CASCADE,
-        related_name='missing_stock_logs',
-        null=True,
-        blank=True
-    )
-
-    class Meta:
-        ordering = ['updated_at']
-
-    def __str__(self):
-        return f"{self.missing_stock.product.name} — {self.quantity} @ {self.updated_at:%Y-%m-%d %H:%M}"
 
 
 class DeliveryEntry(models.Model):

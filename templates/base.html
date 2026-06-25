@@ -422,7 +422,6 @@
                 <a href="/products/" id="navProducts">Products</a>
                 <a href="/stock/" id="navStock">Stock</a>
                 <a href="/report/" id="navReport">Report</a>
-                <a href="/missing-stock/" id="missingStockLink" style="display: none;">Missing Stock</a>
                 <select id="locationFilter" style="display:none;padding:0.3rem 0.5rem;border-radius:0.4rem;border:1px solid var(--border);font-size:0.8rem;background:white;cursor:pointer;">
                     <option value="">All Locations</option>
                 </select>
@@ -443,7 +442,6 @@
         <a href="/products/" id="mobileProducts" onclick="closeMenu()">📦 Products</a>
         <a href="/stock/" id="mobileStock" onclick="closeMenu()">🗃️ Stock</a>
         <a href="/report/" id="mobileReport" onclick="closeMenu()">📋 Report</a>
-        <a href="/missing-stock/" id="missingStockMobile" style="display:none;" onclick="closeMenu()">⚠️ Missing Stock</a>
         <a href="#" onclick="logout()" class="logout-mobile">🚪 Logout</a>
     </div>
     {% endblock %}
@@ -455,7 +453,7 @@
         const hasLocationAccess = localStorage.getItem('has_location_access') === '1';
         const canAccessOperations = localStorage.getItem('can_access_operations') === '1';
         const canAccessCalculations = localStorage.getItem('can_access_calculations') === '1';
-        const canAccessMissingStock = localStorage.getItem('can_access_missing_stock') === '1';
+        const canViewStock = localStorage.getItem('can_view_stock') === '1';
 
         const publicPaths = ['/', '/login/'];
         if (!token && !publicPaths.includes(window.location.pathname)) {
@@ -464,10 +462,10 @@
 
         // Role-based page guards
         const path = window.location.pathname;
-        if (path.includes('missing-stock') && !canAccessMissingStock) {
+        if ((path.includes('/vendors/') || path.includes('/products/')) && !canAccessOperations) {
             window.location.href = '/dashboard/';
         }
-        if ((path.includes('/vendors/') || path.includes('/products/') || path.includes('/stock/')) && !canAccessOperations) {
+        if (path.includes('/stock/') && !canViewStock) {
             window.location.href = '/dashboard/';
         }
         if (path.includes('/report/') && !canAccessCalculations) {
@@ -482,14 +480,12 @@
 
         setNavVisibility('navVendors', canAccessOperations);
         setNavVisibility('navProducts', canAccessOperations);
-        setNavVisibility('navStock', canAccessOperations);
+        setNavVisibility('navStock', canViewStock);
         setNavVisibility('navReport', canAccessCalculations);
         setNavVisibility('mobileVendors', canAccessOperations);
         setNavVisibility('mobileProducts', canAccessOperations);
-        setNavVisibility('mobileStock', canAccessOperations);
+        setNavVisibility('mobileStock', canViewStock);
         setNavVisibility('mobileReport', canAccessCalculations);
-        setNavVisibility('missingStockLink', canAccessMissingStock);
-        setNavVisibility('missingStockMobile', canAccessMissingStock);
 
         // Location filter for multi-location users
         async function loadLocationFilter() {
@@ -529,7 +525,7 @@
             localStorage.removeItem('has_location_access');
             localStorage.removeItem('can_access_operations');
             localStorage.removeItem('can_access_calculations');
-            localStorage.removeItem('can_access_missing_stock');
+            localStorage.removeItem('can_view_stock');
             localStorage.removeItem('selected_location');
             window.location.href = '/';
         }
@@ -550,13 +546,13 @@
         document.addEventListener('click', e => {
             const menu = document.getElementById('mobileMenu');
             const btn = document.getElementById('hamburger');
-            if (menu && btn && !menu.contains(e.target) && !btn.contains(e.target)) {
+            if (menu && btn && !menu.contains(e.target) && !btn.contains(e.target)) 
                 menu.classList.remove('open');
                 btn.classList.remove('open');
             }
         });
 
-        const API_BASE_URL = 'https://sageinv-da86fad0acf3.herokuapp.com';
+        const API_BASE_URL = '';  // same-origin: the API is served by this Django app
 
         async function apiRequest(url, options = {}) {
             const token = localStorage.getItem('auth_token');
@@ -582,6 +578,25 @@
         }
 
         if (token) loadLocationFilter();
+
+        // ── Real-time report stream (WebSocket) ──
+        // Connects to the Channels consumer and re-broadcasts incoming events as
+        // a DOM CustomEvent('report-update') that pages (e.g. /report/) listen for.
+        function connectReportSocket() {
+            if (!token) return;
+            const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+            const ws = new WebSocket(`${scheme}://${window.location.host}/ws/reports/?token=${token}`);
+            ws.onmessage = (e) => {
+                try {
+                    const data = JSON.parse(e.data);
+                    window.dispatchEvent(new CustomEvent('report-update', { detail: data }));
+                } catch (err) { console.error('Bad WS message', err); }
+            };
+            ws.onclose = () => setTimeout(connectReportSocket, 3000);  // auto-reconnect
+            ws.onerror = () => ws.close();
+            window.reportSocket = ws;
+        }
+        if (token) connectReportSocket();
     </script>
 
     <div class="container">

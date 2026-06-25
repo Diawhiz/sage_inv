@@ -332,8 +332,7 @@
     </div>
 
     <script>
-        const API_BASE_URL = 'https://sageinv-da86fad0acf3.herokuapp.com';
-        // const API_BASE_URL = 'http://127.0.0.1:8000';
+        const API_BASE_URL = '';  // same-origin: served by this Django app
         const statusEl = document.getElementById('statusMsg');
         const errorBox = document.getElementById('errorBox');
         const loginBtn = document.getElementById('loginBtn');
@@ -382,7 +381,7 @@
                     localStorage.setItem('has_location_access', data.user.has_location_access ? '1' : '0');
                     localStorage.setItem('can_access_operations', data.user.can_access_operations ? '1' : '0');
                     localStorage.setItem('can_access_calculations', data.user.can_access_calculations ? '1' : '0');
-                    localStorage.setItem('can_access_missing_stock', data.user.can_access_missing_stock ? '1' : '0');
+                    localStorage.setItem('can_view_stock', data.user.can_view_stock ? '1' : '0');
                     loginBtn.querySelector('.btn-text').textContent = '✓ Redirecting...';
                     statusEl.textContent = '● authenticated';
                     statusEl.className = 'status ok';

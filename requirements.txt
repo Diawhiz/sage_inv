@@ -6,3 +6,8 @@ whitenoise
 python-decouple
 dj-database-url
 gunicorn
+channels
+channels-redis
+redis
+daphne
+uvicorn[standard]

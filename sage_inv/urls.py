@@ -10,6 +10,5 @@ urlpatterns = [
     path('vendors/', TemplateView.as_view(template_name='vendors.html'), name='vendors'),
     path('products/', TemplateView.as_view(template_name='products.html'), name='products'),
     path('stock/', TemplateView.as_view(template_name='stock.html'), name='stock'),
-    path('missing-stock/', TemplateView.as_view(template_name='missing-stock.html'), name='missing-stock'),
     path('report/', TemplateView.as_view(template_name='report.html'), name='report'),
 ]

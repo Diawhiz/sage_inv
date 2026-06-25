@@ -12,15 +12,16 @@ The backend is a Django application using Django REST Framework (DRF) for API en
 
 | Model | Purpose | Key Fields |
 |---|---|---|
-| **User** | Custom auth with roles | `username`, `password`, `role` (ceo/coo/cto/manager/staff), `location` (FK) |
-| **Location** | Business locations | `name`, `address`, `contact`, `is_active` |
+| **Region** | Geographic region (e.g. Osho) grouping locations | `name`, `is_active` |
+| **User** | Custom auth with roles | `username`, `password`, `role` (ceo/coo/cto/cfo/regional_manager/manager/agent/staff), `location` (FK), `region` (FK), `assigned_locations` (M2M) |
+| **Location** | Business locations | `name`, `address`, `contact`, `region` (FK), `is_active` |
 | **Vendor** | Suppliers of products | `name`, `contact`, `address`, `location` (FK), `user` (FK) |
 | **Product** | Items in inventory | `name`, `description`, `price`, `vendor` (FK), `location` (FK) |
 | **Stock** | Current quantity tracking | `product` (OneToOne), `quantity`, `last_updated`, `updated_by` (FK), `location` (FK) |
-| **MissingStock** | Discrepancy reports | `product` (FK), `quantity_missing`, `date_reported`, `action_taken`, `location` (FK) |
-| **MissingStockLog** | Audit trail for missing stock | `missing_stock` (FK), `quantity`, `note`, `updated_by` (FK), `location` (FK) |
-| **DeliveryEntry** | Delivery records | `vendor`, `product`, `price`, `delivery_fee`, `quantity`, `rider`, `delivery_location`, `date`, `location` (FK) |
+| **DeliveryEntry** | Delivery / order records | `vendor`, `product`, `price`, `delivery_fee`, `quantity`, `rider`, `delivery_location`, `date`, `location` (FK) |
 | **Expense** | Expense records | `description`, `amount`, `date`, `location` (FK) |
+
+**Region → Location hierarchy:** A `Region` contains many `Location`s. A user's data scope is resolved by role: global roles see all; a Regional Manager sees every location in their `region`; an Agent sees only their `assigned_locations`; Manager/Staff see their single `location`.
 
 **Relationships:**
 - A `Location` has many `User`, `Vendor`, `Product`, `Stock`, `MissingStock`, `DeliveryEntry`, `Expense` records
@@ -40,7 +41,8 @@ All API routes are prefixed with `/api/`.
 | POST | `/api/auth/login/` | Public | Username/password login, returns auth token |
 | POST | `/api/auth/register/` | CEO / Superuser only | Create new user accounts with role and location |
 | GET | `/api/user/` | Authenticated | Returns current user info including role and location flags |
-| GET/POST | `/api/locations/` | Authenticated | List / Add locations (CEO/COO/CTO see all; others see assigned) |
+| GET/POST | `/api/regions/` | Authenticated | List / Add regions (global roles see all; others see their own) |
+| GET/POST | `/api/locations/` | Authenticated | List / Add locations (scoped by role/region) |
 | GET | `/api/vendors/` | Authenticated | List all vendors |
 | POST | `/api/vendors/` | Superuser only | Create new vendor |
 | GET/PUT/DELETE | `/api/vendors/<id>/` | Authenticated | Retrieve, update, or delete a vendor |
@@ -51,8 +53,8 @@ All API routes are prefixed with `/api/`.
 | POST | `/api/stock/` | Authenticated | Create or link a stock record to a product |
 | GET | `/api/stock/<id>/` | Authenticated | Retrieve a specific stock record |
 | PATCH | `/api/stock/<id>/` | Authenticated | Update stock quantity (sets `updated_by` to current user) |
-| GET | `/api/missing-stock/` | Authenticated | List all missing stock reports |
-| POST | `/api/missing-stock/` | Superuser only | Report missing stock |
+| GET/POST | `/api/deliveries/` | Operations/Finance | List / create delivery (order) records; creation pushes a real-time event |
+| GET/POST | `/api/expenses/` | Operations/Finance | List / create expense records; creation pushes a real-time event |
 
 **Authentication:** All authenticated endpoints require an `Authorization: Token <token>` header. The token is obtained from the login endpoint and stored in the client's `localStorage`.
 
@@ -136,31 +138,41 @@ The app is installable on mobile and desktop through PWA configuration:
 
 ### User Roles & Permissions
 
-| Feature | CEO / Superuser | COO | CTO | Manager | Staff |
-|---|---|---|---|---|---|
-| All Locations | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Vendors | ✅ | ✅ | ❌ | ✅* | ✅* |
-| Products | ✅ | ✅ | ❌ | ✅* | ✅* |
-| Stock | ✅ | ✅ | ❌ | ✅* | ✅* |
-| Deliveries | ✅ | ✅ | ✅ | ✅* | ✅* |
-| Expenses | ✅ | ✅ | ✅ | ✅* | ✅* |
-| Report / Calculations | ✅ | ❌ | ✅ | ✅* | ✅* |
-| Missing Stock | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Register Users | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Feature | CEO / Superuser | COO | CTO | CFO | Regional Manager | Manager | Agent | Staff |
+|---|---|---|---|---|---|---|---|---|
+| Scope (locations) | All | All | All | All | Their region | Their location | Assigned locations | Their location |
+| Vendors / Products | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| Stock | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Deliveries (orders) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Expenses / Report (finance) | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Register Users | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
-\* Manager and Staff access is restricted to their **assigned location only**.
+All non-global roles are restricted to their resolved location scope (see Region → Location above).
 
 **Role Hierarchy:**
-- **CEO / Superuser:** Full access to all locations and all data
-- **COO:** Access to all locations, operations-focused (vendors, products, stock, deliveries, expenses, missing stock)
-- **CTO:** Access to all locations, calculations-focused (reports, expenses, deliveries, payment service)
-- **Manager:** Access to assigned location only, all endpoints within that location
-- **Staff:** Access to assigned location only, all endpoints within that location
+- **CEO / Superuser:** Full access to all locations and all data.
+- **COO:** All locations, operations-focused (vendors, products, stock, deliveries).
+- **CTO:** All locations, calculations/finance-focused (reports, expenses, deliveries).
+- **CFO:** All locations, **finance + stock only** (deliveries, expenses, reports, stock) — no vendor/product management.
+- **Regional Manager:** Everything within their assigned **region** (operations + finance for every location in it).
+- **Manager:** Operations + finance within their single assigned location.
+- **Agent:** Operations only within the specific locations assigned to them.
+- **Staff:** Single assigned location.
+
+Roles are a fixed code-defined set; the master superuser creates users and assigns role/region/location(s) from **Django admin** (`/admin/`).
 
 **Enforcement happens at three levels:**
-1. **Backend:** Viewsets filter queryset by user role and location. `can_access_missing_stock`, `can_access_operations`, `can_access_calculations` properties control endpoint access.
+1. **Backend:** `allowed_location_ids()` resolves each user's location scope; viewsets filter querysets via `get_location_filtered_queryset()`. The `can_access_operations`, `can_access_calculations`, `can_view_stock` properties gate endpoint access.
 2. **Frontend:** JavaScript stores role flags in `localStorage` and hides/shows navigation items and page guards based on role.
-3. **Location Filter:** Users with multi-location access (CEO, COO, CTO) see a location dropdown in the navbar to filter data by specific location.
+3. **Location/Region Filter:** Users with global access see a location dropdown in the navbar (`?location=`/`?region=` query params).
+
+### Real-time updates (WebSockets)
+
+Built with **Django Channels** so finance officers see orders/expenses live as they are entered:
+- ASGI app (`sage_inv/asgi.py`) routes WebSocket traffic through `TokenAuthMiddleware` (DRF token via `?token=`) to `ReportConsumer` at `ws/reports/`.
+- On a delivery/expense create (or delivery delete), the viewset calls `broadcast_report_event()` which fans the event to groups: `reports_all` (global finance/exec), `reports_region_<id>` (regional manager), and `reports_loc_<id>` (location-scoped users).
+- The frontend (`base.html`) keeps a reconnecting socket and emits a `report-update` DOM event; `report.html` re-fetches on it, so the CFO's report updates without reloading.
+- **Infra:** Redis channel layer via `REDIS_URL` in production (falls back to in-memory for single-process dev). Requires a persistent ASGI host (Heroku/Railway/Render/Fly) — not Vercel serverless.
 
 ### Data Flow
 
@@ -184,8 +196,10 @@ The app is installable on mobile and desktop through PWA configuration:
 
 ### Deployment Notes
 
-- **Database:** PostgreSQL connection configured via environment variables (`DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`)
+- **Database:** Configured via a single `DATABASE_URL` env var (parsed by `dj-database-url`); falls back to SQLite locally
+- **Redis:** `REDIS_URL` env var for the Channels layer (real-time); optional in dev
+- **Web process:** ASGI — `gunicorn sage_inv.asgi:application -k uvicorn.workers.UvicornWorker`
 - **Static files:** Collected to `staticfiles/` directory for production serving
-- **Secret key:** Must be overridden via `DJANGO_SECRET_KEY` environment variable in production
-- **Debug mode:** Controlled by `DJANGO_DEBUG` environment variable
-- **Allowed hosts:** Configured via `DJANGO_ALLOWED_HOSTS` environment variable
+- **Secret key:** Must be overridden via `SECRET_KEY` environment variable in production
+- **Debug mode:** Controlled by `DEBUG` environment variable (security headers — SSL redirect, HSTS, secure cookies — activate automatically when `DEBUG=False`)
+- **Allowed hosts / CORS / CSRF:** `ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS` env vars (comma-separated)

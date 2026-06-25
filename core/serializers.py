@@ -1,35 +1,48 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Location, Vendor, Product, Stock, MissingStock, MissingStockLog, DeliveryEntry, Expense
+from .models import Region, Location, Vendor, Product, Stock, DeliveryEntry, Expense
 
 User = get_user_model()
 
 
+class RegionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Region
+        fields = ['id', 'name', 'is_active', 'created_at']
+
+
 class LocationSerializer(serializers.ModelSerializer):
+    region_name = serializers.CharField(source='region.name', read_only=True)
+
     class Meta:
         model = Location
-        fields = ['id', 'name', 'address', 'contact', 'is_active', 'created_at']
+        fields = ['id', 'name', 'address', 'contact', 'region', 'region_name', 'is_active', 'created_at']
 
 
 class UserSerializer(serializers.ModelSerializer):
     location_name = serializers.CharField(source='location.name', read_only=True)
+    region_name = serializers.CharField(source='region.name', read_only=True)
     role_display = serializers.CharField(source='get_role_display', read_only=True)
 
     class Meta:
         model = User
         fields = [
             'id', 'username', 'email', 'role', 'role_display',
-            'is_superuser', 'is_staff', 'location', 'location_name',
-            'is_ceo', 'is_coo', 'is_cto', 'is_manager',
+            'is_superuser', 'is_staff',
+            'location', 'location_name', 'region', 'region_name',
+            'assigned_locations',
+            'is_ceo', 'is_coo', 'is_cto', 'is_cfo',
+            'is_regional_manager', 'is_manager', 'is_agent',
             'has_location_access', 'can_access_operations',
-            'can_access_calculations', 'can_access_missing_stock',
+            'can_access_calculations', 'can_view_stock',
             'can_register_users',
         ]
         read_only_fields = [
             'id', 'is_superuser', 'is_staff',
-            'is_ceo', 'is_coo', 'is_cto', 'is_manager',
+            'is_ceo', 'is_coo', 'is_cto', 'is_cfo',
+            'is_regional_manager', 'is_manager', 'is_agent',
             'has_location_access', 'can_access_operations',
-            'can_access_calculations', 'can_access_missing_stock',
+            'can_access_calculations', 'can_view_stock',
             'can_register_users',
         ]
 
@@ -68,30 +81,6 @@ class StockSerializer(serializers.ModelSerializer):
             'location', 'location_name',
         ]
         read_only_fields = ['last_updated', 'updated_by']
-
-
-class MissingStockLogSerializer(serializers.ModelSerializer):
-    updated_by_username = serializers.CharField(source='updated_by.username', read_only=True)
-
-    class Meta:
-        model = MissingStockLog
-        fields = ['id', 'quantity', 'note', 'updated_at', 'updated_by_username']
-        read_only_fields = ['updated_at', 'updated_by_username']
-
-
-class MissingStockSerializer(serializers.ModelSerializer):
-    product_name = serializers.CharField(source='product.name', read_only=True)
-    logs = MissingStockLogSerializer(many=True, read_only=True)
-    location_name = serializers.CharField(source='location.name', read_only=True)
-
-    class Meta:
-        model = MissingStock
-        fields = [
-            'id', 'product', 'product_name', 'quantity_missing',
-            'date_reported', 'action_taken', 'logs',
-            'location', 'location_name',
-        ]
-        read_only_fields = ['date_reported']
 
 
 class DeliveryEntrySerializer(serializers.ModelSerializer):

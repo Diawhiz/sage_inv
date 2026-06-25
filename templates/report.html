@@ -92,7 +92,9 @@
 
 <!-- Toolbar -->
 <div class="toolbar" style="margin-bottom:1.25rem">
-    <h1 class="page-title" style="margin:0;flex:1">Daily Report</h1>
+    <h1 class="page-title" style="margin:0;flex:1">Daily Report
+        <span id="liveBanner" style="font-size:0.7rem;color:#16a34a;margin-left:0.5rem;opacity:0;transition:opacity .3s">● live</span>
+    </h1>
     <div style="display:flex;align-items:center;gap:0.4rem">
         <button class="btn" style="padding:.4rem .65rem;font-size:1rem;line-height:1" onclick="shiftDate(-1)" title="Previous day">&#8249;</button>
         <input type="date" id="reportDate" class="date-input">
@@ -224,6 +226,20 @@ function shiftDate(days) {
     } catch(e) { console.error(e); }
     loadReportData();
 })();
+
+// ── Live updates ─────────────────────────────────────────
+// base.html pushes 'report-update' events from the WebSocket stream. Re-fetch the
+// currently viewed date so the CFO/managers see new orders & expenses in real time.
+window.addEventListener('report-update', () => {
+    loadReportData();
+    const banner = document.getElementById('liveBanner');
+    if (banner) {
+        banner.textContent = '● live update received';
+        banner.style.opacity = '1';
+        clearTimeout(window._liveBannerTimer);
+        window._liveBannerTimer = setTimeout(() => { banner.style.opacity = '0'; }, 2000);
+    }
+});
 
 // ── Form helpers ─────────────────────────────────────────
 async function onVendorChange() {
