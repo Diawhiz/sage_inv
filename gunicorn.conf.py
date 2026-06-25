@@ -4,13 +4,15 @@ Optimized for Django with proper worker settings.
 """
 
 import os
-import multiprocessing
 
 # Server socket
 bind = f"0.0.0.0:{os.environ.get('PORT', '8000')}"
 
 # Worker processes - Uvicorn ASGI workers so HTTP + WebSocket (Channels) are served.
-workers = int(os.environ.get('WEB_CONCURRENCY', multiprocessing.cpu_count() * 2 + 1))
+# Keep the default low: each worker consumes DB connection slots, and the Aiven
+# plan has a tight connection cap. Scale up via WEB_CONCURRENCY only if the DB
+# can afford the extra connections.
+workers = int(os.environ.get('WEB_CONCURRENCY', 2))
 worker_class = "uvicorn.workers.UvicornWorker"
 
 # Timeout settings

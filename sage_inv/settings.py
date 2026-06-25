@@ -112,10 +112,15 @@ WSGI_APPLICATION = 'sage_inv.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
+# Keep the per-process connection budget small: Aiven's plan caps total
+# connections (some reserved for SUPERUSER), so each worker should not hold a
+# connection open between requests. Override CONN_MAX_AGE only if the DB can
+# afford persistent connections (e.g. behind PgBouncer).
 DATABASES = {
     'default': dj_database_url.config(
         default=config('AIVEN_DATABASE_URL', default='sqlite:///db.sqlite3'),
-        conn_max_age=600,
+        conn_max_age=config('CONN_MAX_AGE', default=0, cast=int),
+        conn_health_checks=True,
     )
 }
 
