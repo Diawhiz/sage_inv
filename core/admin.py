@@ -58,22 +58,23 @@ class GroupAdmin(DjangoGroupAdmin, ModelAdmin):
 
 @admin.register(Vendor)
 class VendorAdmin(ModelAdmin):
-    list_display = ['name', 'contact', 'location', 'user', 'created_at']
-    list_filter = ['location']
+    list_display = ['name', 'contact', 'user', 'created_at']
     search_fields = ['name', 'contact']
 
 
 @admin.register(Product)
 class ProductAdmin(ModelAdmin):
-    list_display = ['name', 'vendor', 'price', 'location', 'created_at']
-    list_filter = ['location']
+    list_display = ['name', 'vendor', 'price', 'created_at']
+    list_filter = ['vendor']
     search_fields = ['name', 'vendor__name']
 
 
 @admin.register(Stock)
 class StockAdmin(ModelAdmin):
-    list_display = ['product', 'quantity', 'location', 'last_updated', 'updated_by']
+    list_display = ['product', 'location', 'quantity', 'last_updated', 'updated_by']
     list_filter = ['location', 'last_updated']
+    search_fields = ['product__name']
+    autocomplete_fields = ['product']
 
 
 @admin.register(DeliveryEntry)

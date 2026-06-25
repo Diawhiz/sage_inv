@@ -178,14 +178,13 @@ class VendorViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        user = self.request.user
-        if not user.can_access_operations:
+        # Vendors are a global catalog shared across every location.
+        if not self.request.user.can_access_operations:
             return Vendor.objects.none()
-        qs = Vendor.objects.all()
-        return get_location_filtered_queryset(user, qs, self.request)
+        return Vendor.objects.all()
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user, **location_save_kwargs(self.request.user, serializer))
+        serializer.save(user=self.request.user)
 
 
 class ProductViewSet(viewsets.ModelViewSet):
@@ -193,17 +192,17 @@ class ProductViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        user = self.request.user
-        if not user.can_access_operations:
+        # Products are a global catalog; per-location quantities live on Stock.
+        if not self.request.user.can_access_operations:
             return Product.objects.none()
         qs = Product.objects.all()
         vendor_id = self.request.query_params.get('vendor')
         if vendor_id:
             qs = qs.filter(vendor_id=vendor_id)
-        return get_location_filtered_queryset(user, qs, self.request)
+        return qs
 
     def perform_create(self, serializer):
-        serializer.save(**location_save_kwargs(self.request.user, serializer))
+        serializer.save()
 
 
 class StockViewSet(viewsets.ModelViewSet):
@@ -248,26 +247,28 @@ class DeliveryEntryViewSet(viewsets.ModelViewSet):
             created_by=self.request.user,
             **location_save_kwargs(self.request.user, serializer),
         )
-        try:
-            stock = Stock.objects.get(product=entry.product)
-            stock.quantity = max(0, stock.quantity - entry.quantity)
-            stock.updated_by = self.request.user
-            stock.save()
-        except Stock.DoesNotExist:
-            pass
+        self._adjust_stock(entry.product_id, entry.location_id, -entry.quantity, self.request.user)
         broadcast_report_event('delivery_created', DeliveryEntrySerializer(entry).data, entry.location)
 
     def perform_destroy(self, instance):
-        try:
-            stock = Stock.objects.get(product=instance.product)
-            stock.quantity += instance.quantity
-            stock.save()
-        except Stock.DoesNotExist:
-            pass
+        # Return the delivered units to the stock row they were taken from.
+        self._adjust_stock(instance.product_id, instance.location_id, instance.quantity, None)
         payload = {'id': instance.id}
         location = instance.location
         instance.delete()
         broadcast_report_event('delivery_deleted', payload, location)
+
+    @staticmethod
+    def _adjust_stock(product_id, location_id, delta, user):
+        """Adjust the quantity of the stock row for this product at this location."""
+        qs = Stock.objects.filter(product_id=product_id, location_id=location_id)
+        stock = qs.first()
+        if stock is None:
+            return
+        stock.quantity = max(0, stock.quantity + delta)
+        if user is not None:
+            stock.updated_by = user
+        stock.save()
 
 
 class ExpenseViewSet(viewsets.ModelViewSet):

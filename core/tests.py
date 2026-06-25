@@ -4,7 +4,7 @@ from rest_framework.test import APIClient
 from channels.testing import WebsocketCommunicator
 from channels.layers import get_channel_layer
 
-from .models import Region, Location, Vendor, Product
+from .models import Region, Location, Vendor, Product, Stock
 from .consumers import ReportConsumer
 
 User = get_user_model()
@@ -13,7 +13,7 @@ INMEM = {'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}}
 
 
 class ScopingTestData(TestCase):
-    """Shared fixtures: two regions, locations, and one product per location."""
+    """Shared fixtures: regions, locations, a shared catalog, per-location stock."""
 
     @classmethod
     def setUpTestData(cls):
@@ -23,9 +23,13 @@ class ScopingTestData(TestCase):
         cls.osho_b = Location.objects.create(name='Osho Shop B', region=cls.osho)
         cls.lekki_a = Location.objects.create(name='Lekki Shop A', region=cls.lekki)
 
-        for loc in (cls.osho_a, cls.osho_b, cls.lekki_a):
-            v = Vendor.objects.create(name=f'V-{loc.name}', contact='x', address='y', location=loc)
-            Product.objects.create(name=f'P-{loc.name}', description='', vendor=v, location=loc)
+        # Global catalog: one vendor + one product, used everywhere.
+        cls.vilox = Vendor.objects.create(name='Vilox', contact='x', address='y')
+        cls.rice = Product.objects.create(name='Vilox Rice', description='', vendor=cls.vilox)
+
+        # Same product, independent stock per location.
+        for loc, qty in ((cls.osho_a, 50), (cls.osho_b, 20), (cls.lekki_a, 5)):
+            Stock.objects.create(product=cls.rice, location=loc, quantity=qty)
 
     def auth(self, username, assigned=None, **kwargs):
         kwargs.setdefault('password', 'pass12345!')
@@ -35,6 +39,20 @@ class ScopingTestData(TestCase):
         client = APIClient()
         client.force_authenticate(user=user)
         return client, user
+
+
+class CatalogTests(ScopingTestData):
+    def test_vendor_and_product_are_global_catalog(self):
+        # An agent at one location still sees the shared vendor/product catalog.
+        client, _ = self.auth('agent_cat', role='agent', assigned=[self.osho_a])
+        self.assertEqual([v['name'] for v in client.get('/api/vendors/').json()], ['Vilox'])
+        self.assertEqual([p['name'] for p in client.get('/api/products/').json()], ['Vilox Rice'])
+
+    def test_same_product_holds_independent_stock_per_location(self):
+        client, _ = self.auth('ceo_stock', role='ceo')
+        rows = client.get('/api/stock/').json()
+        by_loc = {r['location_name']: r['quantity'] for r in rows}
+        self.assertEqual(by_loc, {'Osho Shop A': 50, 'Osho Shop B': 20, 'Lekki Shop A': 5})
 
 
 class RoleScopingTests(ScopingTestData):
@@ -48,24 +66,34 @@ class RoleScopingTests(ScopingTestData):
         self.assertEqual(client.get('/api/products/').json(), [])
         self.assertEqual(client.get('/api/vendors/').json(), [])
 
-    def test_regional_manager_sees_only_their_region(self):
+    def test_regional_manager_sees_only_their_region_stock(self):
         client, _ = self.auth('rm', role='regional_manager', region=self.osho)
-        names = [p['location_name'] for p in client.get('/api/products/').json()]
+        names = [s['location_name'] for s in client.get('/api/stock/').json()]
         self.assertCountEqual(names, ['Osho Shop A', 'Osho Shop B'])
 
-    def test_agent_sees_only_assigned_locations(self):
+    def test_agent_sees_only_assigned_location_stock(self):
         client, _ = self.auth('agent', role='agent', assigned=[self.osho_a])
-        rows = client.get('/api/products/').json()
+        rows = client.get('/api/stock/').json()
         self.assertEqual([r['location_name'] for r in rows], ['Osho Shop A'])
 
     def test_agent_create_stamps_assigned_location(self):
         client, _ = self.auth('agent2', role='agent', assigned=[self.osho_b])
-        vendor = Vendor.objects.filter(location=self.osho_b).first()
-        res = client.post('/api/products/', {
-            'name': 'New', 'description': 'd', 'price': '5.00', 'vendor': vendor.id,
+        res = client.post('/api/deliveries/', {
+            'vendor': self.vilox.id, 'product': self.rice.id,
+            'price': '5.00', 'quantity': 1,
         }, format='json')
         self.assertEqual(res.status_code, 201, res.content)
         self.assertEqual(res.json()['location'], self.osho_b.id)
+
+    def test_delivery_decrements_stock_at_its_location(self):
+        client, _ = self.auth('agent3', role='agent', assigned=[self.osho_b])
+        client.post('/api/deliveries/', {
+            'vendor': self.vilox.id, 'product': self.rice.id,
+            'price': '5.00', 'quantity': 3,
+        }, format='json')
+        # Osho B drops 20 -> 17; other locations untouched.
+        self.assertEqual(Stock.objects.get(product=self.rice, location=self.osho_b).quantity, 17)
+        self.assertEqual(Stock.objects.get(product=self.rice, location=self.osho_a).quantity, 50)
 
 
 class MissingStockRemovedTests(ScopingTestData):

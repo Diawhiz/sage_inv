@@ -48,23 +48,20 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class VendorSerializer(serializers.ModelSerializer):
-    location_name = serializers.CharField(source='location.name', read_only=True)
-
     class Meta:
         model = Vendor
-        fields = ['id', 'name', 'contact', 'address', 'location', 'location_name', 'user']
+        fields = ['id', 'name', 'contact', 'address', 'user']
         read_only_fields = ['user']
 
 
 class ProductSerializer(serializers.ModelSerializer):
     vendor_name = serializers.CharField(source='vendor.name', read_only=True)
-    location_name = serializers.CharField(source='location.name', read_only=True)
 
     class Meta:
         model = Product
         fields = [
             'id', 'name', 'description', 'price',
-            'vendor', 'vendor_name', 'location', 'location_name',
+            'vendor', 'vendor_name',
         ]
 
 

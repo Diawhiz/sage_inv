@@ -32,6 +32,7 @@
         <h3>Add Stock Entry</h3>
         <form id="addStockForm">
             <div class="form-group"><label>Product</label><select id="addStockProduct" required><option value="">-- Select Product --</option></select></div>
+            <div class="form-group" id="addStockLocationGroup" style="display:none;"><label>Location</label><select id="addStockLocation"><option value="">-- Select Location --</option></select></div>
             <div class="form-group"><label>Initial Quantity</label><input type="number" id="addStockQuantity" min="0" value="0" required></div>
             <div class="modal-actions">
                 <button type="submit" class="btn btn-primary">Add Stock</button>
@@ -52,12 +53,13 @@ async function loadStock() {
         document.getElementById('stockTable').innerHTML = `
             <table>
                 <thead>
-                    <tr><th>Product</th><th>Quantity</th><th>Last Updated</th><th>Updated By</th><th>Actions</th></tr>
+                    <tr><th>Product</th><th>Location</th><th>Quantity</th><th>Last Updated</th><th>Updated By</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
                     ${stock.map(s => `
                         <tr>
                             <td data-label="Product">${s.product_name}</td>
+                            <td data-label="Location">${s.location_name||'—'}</td>
                             <td data-label="Quantity">
                                 <span style="font-weight:700;color:${s.quantity===0?'#EF4444':s.quantity<10?'#F59E0B':'#10B981'}">
                                     ${s.quantity}${s.quantity===0?' ⚠ OUT':s.quantity<10?' ⚠ LOW':''}
@@ -83,6 +85,15 @@ async function openAddModal() {
         select.innerHTML = '<option value="">-- Select Product --</option>' +
             products.map(p => `<option value="${p.id}">${p.name} (${p.vendor_name})</option>`).join('');
         document.getElementById('addStockForm').reset();
+        // Multi-location users pick which location this stock belongs to.
+        // Location-restricted users have it stamped automatically by the server.
+        if (hasLocationAccess) {
+            const locations = await (await apiRequest('/api/locations/')).json();
+            const locSelect = document.getElementById('addStockLocation');
+            locSelect.innerHTML = '<option value="">-- Select Location --</option>' +
+                locations.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+            document.getElementById('addStockLocationGroup').style.display = '';
+        }
         document.getElementById('addStockModal').style.display = 'flex';
     } catch(e) { alert(e.message); }
 }
@@ -112,8 +123,14 @@ document.getElementById('addStockForm').addEventListener('submit', async e => {
     const product = parseInt(document.getElementById('addStockProduct').value);
     const quantity = parseInt(document.getElementById('addStockQuantity').value);
     if (!product) { alert('Please select a product.'); return; }
+    const payload = { product, quantity };
+    if (hasLocationAccess) {
+        const loc = document.getElementById('addStockLocation').value;
+        if (!loc) { alert('Please select a location.'); return; }
+        payload.location = parseInt(loc);
+    }
     try {
-        const r = await apiRequest('/api/stock/', {method:'POST', body:JSON.stringify({product, quantity})});
+        const r = await apiRequest('/api/stock/', {method:'POST', body:JSON.stringify(payload)});
         if (!r.ok) throw new Error(JSON.stringify(await r.json()));
         closeModal('addStockModal'); loadStock();
     } catch(e) { alert(e.message); }
