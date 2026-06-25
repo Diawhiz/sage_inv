@@ -14,6 +14,8 @@ import os
 from pathlib import Path
 import dj_database_url
 from decouple import config
+from django.urls import reverse_lazy
+from django.utils.translation import gettext_lazy as _
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -42,6 +44,10 @@ ALLOWED_HOSTS = _csv_env(
 
 INSTALLED_APPS = [
     'daphne',  # must precede staticfiles so runserver uses the ASGI/Channels server
+    'unfold',  # must precede django.contrib.admin to theme it
+    'unfold.contrib.filters',
+    'unfold.contrib.forms',
+    'unfold.contrib.inlines',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -185,3 +191,75 @@ if not DEBUG:
     SECURE_HSTS_SECONDS = 31536000  # 1 year
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
+
+
+# ── Django admin theme (django-unfold) ──────────────────────────────────────
+# Brand colour: Tailwind "blue" scale as space-separated RGB channels.
+_BRAND = {
+    "50": "239 246 255", "100": "219 234 254", "200": "191 219 254",
+    "300": "147 197 253", "400": "96 165 250", "500": "59 130 246",
+    "600": "37 99 235", "700": "29 78 216", "800": "30 64 175",
+    "900": "30 58 138", "950": "23 37 84",
+}
+
+UNFOLD = {
+    "SITE_TITLE": "Sage Inventory Admin",
+    "SITE_HEADER": "Sage Inventory",
+    "SITE_SUBHEADER": _("Inventory & Operations"),
+    "SITE_SYMBOL": "inventory_2",
+    "SHOW_HISTORY": True,
+    "SHOW_VIEW_ON_SITE": True,
+    "THEME": None,  # None → user can toggle light/dark
+    "DASHBOARD_CALLBACK": "core.dashboard.dashboard_callback",
+    "COLORS": {"primary": _BRAND},
+    "SIDEBAR": {
+        "show_search": True,
+        "show_all_applications": True,
+        "navigation": [
+            {
+                "title": _("Operations"),
+                "separator": True,
+                "items": [
+                    {"title": _("Vendors"), "icon": "storefront",
+                     "link": reverse_lazy("admin:core_vendor_changelist")},
+                    {"title": _("Products"), "icon": "inventory_2",
+                     "link": reverse_lazy("admin:core_product_changelist")},
+                    {"title": _("Stock"), "icon": "warehouse",
+                     "link": reverse_lazy("admin:core_stock_changelist")},
+                    {"title": _("Deliveries"), "icon": "local_shipping",
+                     "link": reverse_lazy("admin:core_deliveryentry_changelist")},
+                ],
+            },
+            {
+                "title": _("Finance"),
+                "separator": True,
+                "items": [
+                    {"title": _("Expenses"), "icon": "payments",
+                     "link": reverse_lazy("admin:core_expense_changelist")},
+                ],
+            },
+            {
+                "title": _("Organization"),
+                "separator": True,
+                "items": [
+                    {"title": _("Regions"), "icon": "map",
+                     "link": reverse_lazy("admin:core_region_changelist")},
+                    {"title": _("Locations"), "icon": "location_on",
+                     "link": reverse_lazy("admin:core_location_changelist")},
+                ],
+            },
+            {
+                "title": _("Access"),
+                "separator": True,
+                "items": [
+                    {"title": _("Users"), "icon": "person",
+                     "link": reverse_lazy("admin:core_user_changelist")},
+                    {"title": _("Groups"), "icon": "group",
+                     "link": reverse_lazy("admin:auth_group_changelist")},
+                    {"title": _("Tokens"), "icon": "key",
+                     "link": reverse_lazy("admin:authtoken_tokenproxy_changelist")},
+                ],
+            },
+        ],
+    },
+}

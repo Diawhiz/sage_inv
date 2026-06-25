@@ -11,3 +11,4 @@ channels-redis
 redis
 daphne
 uvicorn[standard]
+django-unfold
