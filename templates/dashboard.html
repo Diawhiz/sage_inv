@@ -1,75 +1,177 @@
 {% extends 'base.html' %}
 {% block title %}Dashboard{% endblock %}
 {% block content %}
-<h1 class="page-title">Dashboard</h1>
 
-<div class="stats-row" id="statsRow">
-    <div class="stat-card"><div class="stat-value" id="statVendors">—</div><div class="stat-label">Vendors</div></div>
-    <div class="stat-card"><div class="stat-value" id="statProducts">—</div><div class="stat-label">Products</div></div>
-    <div class="stat-card"><div class="stat-value" id="statStock">—</div><div class="stat-label">Stock Items</div></div>
-    <div class="stat-card"><div class="stat-value" id="statLow" style="color:#EF4444">—</div><div class="stat-label">Low Stock</div></div>
+<!-- Greeting -->
+<div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
+    <div>
+        <h1 class="page-title" style="margin-bottom:0.35rem;" id="greeting">Welcome</h1>
+        <p class="muted" id="scopeLine" style="font-size:0.9rem;"></p>
+    </div>
+    <span class="role-badge" id="roleBadge" style="font-size:0.8rem;padding:0.3rem 0.7rem;">—</span>
 </div>
 
-<div class="card">
-    <h2>Vendors</h2>
-    <div class="table-wrapper" id="vendorsList"></div>
+<!-- Stats -->
+<div class="stats-row" id="statsRow"></div>
+
+<!-- Quick actions -->
+<div style="margin-bottom:1.5rem;">
+    <h2 style="font-size:0.8rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:1rem;">Quick Actions</h2>
+    <div class="quick-grid" id="quickActions"></div>
 </div>
 
-<div class="card">
-    <h2>Products</h2>
-    <div class="table-wrapper" id="productsList"></div>
+<!-- Today's finance snapshot (finance roles) -->
+<div class="card" id="financeCard" style="display:none;">
+    <h2>📋 Today's Snapshot</h2>
+    <div class="stats-row" style="margin-bottom:0;">
+        <div class="stat-card"><div class="stat-icon" style="background:var(--success-soft)">💰</div><div><div class="stat-value" id="todaySales">₦0</div><div class="stat-label">Sales</div></div></div>
+        <div class="stat-card"><div class="stat-icon" style="background:#FEF3C7">🚚</div><div><div class="stat-value" id="todayFees">₦0</div><div class="stat-label">Delivery Fees</div></div></div>
+        <div class="stat-card"><div class="stat-icon" style="background:var(--danger-soft)">🧾</div><div><div class="stat-value" id="todayExpenses">₦0</div><div class="stat-label">Expenses</div></div></div>
+        <div class="stat-card"><div class="stat-icon" style="background:var(--primary-soft)">⚖️</div><div><div class="stat-value" id="todayBalance">₦0</div><div class="stat-label">Balance</div></div></div>
+    </div>
 </div>
 
-<div class="card">
+<!-- Low stock alerts (stock viewers) -->
+<div class="card" id="lowStockCard" style="display:none;">
     <h2>⚠ Low Stock Alerts</h2>
     <div class="table-wrapper" id="lowStockList"></div>
 </div>
 
+<!-- No-access fallback -->
+<div class="card" id="noAccessCard" style="display:none;">
+    <h2>Account</h2>
+    <p class="muted">Your account doesn't have any modules enabled yet. Please contact your administrator to be assigned access.</p>
+</div>
+
 <script>
-async function loadDashboard() {
-    try {
-        const [vr, pr, sr] = await Promise.all([
-            apiRequest('/api/vendors/'),
-            apiRequest('/api/products/'),
-            apiRequest('/api/stock/')
-        ]);
-        const vendors = await vr.json();
-        const products = await pr.json();
-        const stock = await sr.json();
-        const lowStock = stock.filter(s => s.quantity < 10);
+// ── Greeting + identity ──
+(function () {
+    const hour = new Date().getHours();
+    const part = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+    const name = user.username || 'there';
+    document.getElementById('greeting').textContent = `${part}, ${name}`;
+    document.getElementById('scopeLine').textContent =
+        scopeText() ? `Here's what's happening — ${scopeText()}.` : "Here's your overview.";
+    const badge = document.getElementById('roleBadge');
+    badge.textContent = user.role_display || userRole;
+    badge.classList.add(roleTier(userRole));
+})();
 
-        document.getElementById('statVendors').textContent = vendors.length;
-        document.getElementById('statProducts').textContent = products.length;
-        document.getElementById('statStock').textContent = stock.length;
-        document.getElementById('statLow').textContent = lowStock.length;
+// ── Number formatting ──
+function naira(n) { return '₦' + Number(n || 0).toLocaleString('en-NG', { maximumFractionDigits: 0 }); }
 
-        document.getElementById('vendorsList').innerHTML = vendors.length ? `
-            <table><thead><tr><th>Name</th><th>Contact</th><th>Address</th></tr></thead>
-            <tbody>${vendors.map(v=>`<tr>
-                <td data-label="Name">${v.name}</td>
-                <td data-label="Contact">${v.contact}</td>
-                <td data-label="Address">${v.address.substring(0,50)}</td>
-            </tr>`).join('')}</tbody></table>` : '<p style="color:#6B7280">No vendors found</p>';
+// ── Quick actions (privilege filtered) ──
+function buildQuickActions() {
+    const actions = [];
+    if (canAccessOperations) {
+        actions.push(['/vendors/', '🏪', 'Vendors', 'Manage your suppliers']);
+        actions.push(['/products/', '📦', 'Products', 'Catalog & pricing']);
+    }
+    if (canViewStock) actions.push(['/stock/', '🗃️', 'Stock', 'Track quantities']);
+    if (canAccessCalculations) actions.push(['/report/', '📋', 'Daily Report', 'Deliveries & expenses']);
 
-        document.getElementById('productsList').innerHTML = products.length ? `
-            <table><thead><tr><th>Name</th><th>Description</th><th>Vendor</th></tr></thead>
-            <tbody>${products.map(p=>`<tr>
-                <td data-label="Name">${p.name}</td>
-                <td data-label="Description">${p.description.substring(0,50)}</td>
-                <td data-label="Vendor">${p.vendor_name}</td>
-            </tr>`).join('')}</tbody></table>` : '<p style="color:#6B7280">No products found</p>';
-
-        document.getElementById('lowStockList').innerHTML = lowStock.length ? `
-            <table><thead><tr><th>Product</th><th>Qty</th><th>Last Updated</th></tr></thead>
-            <tbody>${lowStock.map(s=>`<tr>
-                <td data-label="Product">${s.product_name}</td>
-                <td data-label="Qty" style="color:${s.quantity===0?'#EF4444':'#F59E0B'};font-weight:700">${s.quantity}${s.quantity===0?' ⚠':''}</td>
-                <td data-label="Updated">${new Date(s.last_updated).toLocaleDateString()}</td>
-            </tr>`).join('')}</tbody></table>`
-            : '<p style="color:#10B981;font-weight:500">✓ All stock levels are healthy</p>';
-
-    } catch(e) { console.error(e); }
+    const el = document.getElementById('quickActions');
+    if (!actions.length) { el.parentElement.style.display = 'none'; return; }
+    el.innerHTML = actions.map(([href, icon, title, desc]) => `
+        <a class="quick-card" href="${href}">
+            <span class="qc-icon">${icon}</span>
+            <span class="qc-title">${title}</span>
+            <span class="qc-desc">${desc}</span>
+        </a>`).join('');
 }
+
+// ── Stat cards (privilege filtered) ──
+function statCard(icon, bg, value, label, id, color) {
+    return `<div class="stat-card">
+        <div class="stat-icon" style="background:${bg}">${icon}</div>
+        <div><div class="stat-value" id="${id}" ${color ? `style="color:${color}"` : ''}>${value}</div>
+        <div class="stat-label">${label}</div></div>
+    </div>`;
+}
+
+async function loadDashboard() {
+    buildQuickActions();
+
+    const hasAnyModule = canAccessOperations || canViewStock || canAccessCalculations;
+    if (!hasAnyModule) {
+        document.getElementById('statsRow').style.display = 'none';
+        document.getElementById('noAccessCard').style.display = 'block';
+        return;
+    }
+
+    const statsRow = document.getElementById('statsRow');
+    const cards = [];
+
+    // Kick off only the requests this role is allowed to make.
+    const jobs = {};
+    if (canAccessOperations) {
+        jobs.vendors = apiRequest('/api/vendors/').then(r => r.json()).catch(() => []);
+        jobs.products = apiRequest('/api/products/').then(r => r.json()).catch(() => []);
+    }
+    if (canViewStock) {
+        jobs.stock = apiRequest('/api/stock/').then(r => r.json()).catch(() => []);
+    }
+    const today = new Date().toISOString().split('T')[0];
+    if (canAccessCalculations) {
+        jobs.deliveries = apiRequest(`/api/deliveries/?date=${today}`).then(r => r.json()).catch(() => []);
+        jobs.expenses = apiRequest(`/api/expenses/?date=${today}`).then(r => r.json()).catch(() => []);
+    }
+
+    const keys = Object.keys(jobs);
+    const results = await Promise.all(keys.map(k => jobs[k]));
+    const data = {};
+    keys.forEach((k, i) => data[k] = Array.isArray(results[i]) ? results[i] : []);
+
+    // Operations stats
+    if (canAccessOperations) {
+        cards.push(statCard('🏪', 'var(--primary-soft)', data.vendors.length, 'Vendors', 'sVendors'));
+        cards.push(statCard('📦', '#EDE9FE', data.products.length, 'Products', 'sProducts'));
+    }
+    // Stock stats
+    if (canViewStock) {
+        const low = data.stock.filter(s => s.quantity < 10);
+        cards.push(statCard('🗃️', '#CCFBF1', data.stock.length, 'Stock Items', 'sStock'));
+        cards.push(statCard('⚠', 'var(--danger-soft)', low.length, 'Low Stock', 'sLow', low.length ? 'var(--danger)' : ''));
+        renderLowStock(low);
+    }
+    // Finance snapshot
+    if (canAccessCalculations) {
+        const sales = data.deliveries.reduce((s, d) => s + parseFloat(d.price) * d.quantity, 0);
+        const fees = data.deliveries.reduce((s, d) => s + parseFloat(d.delivery_fee || 0), 0);
+        const exp = data.expenses.reduce((s, e) => s + parseFloat(e.amount), 0);
+        document.getElementById('financeCard').style.display = 'block';
+        document.getElementById('todaySales').textContent = naira(sales);
+        document.getElementById('todayFees').textContent = naira(fees);
+        document.getElementById('todayExpenses').textContent = naira(exp);
+        document.getElementById('todayBalance').textContent = naira(sales - exp);
+    }
+
+    statsRow.innerHTML = cards.join('') || '';
+    if (!cards.length) statsRow.style.display = 'none';
+}
+
+function renderLowStock(low) {
+    const card = document.getElementById('lowStockCard');
+    card.style.display = 'block';
+    const el = document.getElementById('lowStockList');
+    if (!low.length) {
+        el.innerHTML = '<p style="color:var(--success);font-weight:500;padding:0.5rem 0;">✓ All stock levels are healthy.</p>';
+        return;
+    }
+    el.innerHTML = `
+        <table>
+            <thead><tr><th>Product</th><th>Qty</th><th>Last Updated</th></tr></thead>
+            <tbody>${low.map(s => `<tr>
+                <td data-label="Product">${s.product_name}</td>
+                <td data-label="Qty" style="color:${s.quantity === 0 ? 'var(--danger)' : 'var(--warning)'};font-weight:700">${s.quantity}${s.quantity === 0 ? ' ⚠ OUT' : ' ⚠ LOW'}</td>
+                <td data-label="Updated">${new Date(s.last_updated).toLocaleDateString()}</td>
+            </tr>`).join('')}</tbody>
+        </table>`;
+}
+
+// Live refresh when a delivery/expense arrives (finance roles)
+window.addEventListener('report-update', () => { if (canAccessCalculations) loadDashboard(); });
+
 loadDashboard();
 </script>
 {% endblock %}
