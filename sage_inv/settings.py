@@ -108,7 +108,7 @@ WSGI_APPLICATION = 'sage_inv.wsgi.application'
 
 DATABASES = {
     'default': dj_database_url.config(
-        default=config('DATABASE_URL', default='sqlite:///db.sqlite3'),
+        default=config('AIVEN_DATABASE_URL', default='sqlite:///db.sqlite3'),
         conn_max_age=600,
     )
 }
